@@ -6,7 +6,7 @@ dotenv.config();
 const envSchema = z.object({
   PORT: z.string().default('3000'),
   DATABASE_URL: z.string().url(),
-  NVIDIA_NIM_API_KEY: z.string().min(1),
+  OPENAI_API_KEY: z.string().min(1),
   NVIDIA_NIM_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   NVIDIA_NIM_MODEL: z.string().default('meta/llama3-70b-instruct'),
   NVIDIA_NIM_EMBEDDING_MODEL: z.string().default('nvidia/nv-embedqa-e5-v5'),
@@ -18,7 +18,7 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  console.error('❌ Configuração de variáveis de ambiente inválida:', parsed.error.format());
+  console.error('Configuração de variáveis de ambiente inválida:', parsed.error.format());
   process.exit(1);
 }
 
