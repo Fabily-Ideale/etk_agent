@@ -1,0 +1,36 @@
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  extensions = [vector]
+}
+
+model Client {
+  id          String    @id @default(uuid())
+  phoneNumber String    @unique
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  messages    Message[]
+}
+
+model Message {
+  id        String   @id @default(uuid())
+  text      String
+  role      String   // 'user' or 'assistant'
+  createdAt DateTime @default(now())
+  clientId  String
+  client    Client   @relation(fields: [clientId], references: [id])
+}
+
+model DocumentEmbedding {
+  id        String   @id @default(uuid())
+  content   String
+  embedding Unsupported("vector")?
+  metadata  Json?
+  source    String?
+  category  String?
+  createdAt DateTime @default(now())
+}
