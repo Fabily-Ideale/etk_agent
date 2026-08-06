@@ -10,7 +10,7 @@ export const prisma = new PrismaClient({ adapter });
 
 // Teste de conexão opcional
 prisma.$connect()
-  .then(() => console.log('Conectado ao banco de dados com Prisma'))
+  .then(() => console.log('\r\nConectado ao banco de dados com Prisma'))
   .catch((err) => {
     console.error('Falha ao conectar ao banco de dados', err);
     process.exit(1);

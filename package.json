@@ -8,6 +8,7 @@
     "dev": "ts-node-dev --respawn --transpile-only cod_fonte/server.ts",
     "build": "tsc",
     "db:seed": "prisma db seed",
+    "db:reset": "ts-node cod_fonte/database/reset.ts",
     "ngrok": "ngrok http 3000"
   },
   "prisma": {
