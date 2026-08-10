@@ -7,8 +7,12 @@
     "start": "node cod_result/server.js",
     "dev": "ts-node-dev --respawn --transpile-only cod_fonte/server.ts",
     "build": "tsc",
-    "db:seed": "prisma db seed",
+
+    "db:push": "prisma db push",
+    "db:seed": "prisma db seed && ts-node cod_fonte/rag/doc_conversor.ts",
     "db:reset": "ts-node cod_fonte/database/reset.ts",
+    "db:all": "npm run db:reset && npm run db:push && npm run db:seed",
+
     "ngrok": "ngrok http 3000"
   },
   "prisma": {
@@ -24,6 +28,7 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "ngrok": "^5.0.0-beta.2",
+    "pdf-parse": "^2.4.5",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -31,6 +36,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^26.1.1",
+    "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
     "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
