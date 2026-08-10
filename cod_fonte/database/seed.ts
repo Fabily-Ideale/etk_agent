@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma';
+import { populateVectorStore } from '../rag/vectorStore';
 
 async function main() {
   console.log('Iniciando o povoamento do banco de dados (seed)...');
@@ -48,6 +49,10 @@ async function main() {
   });
 
   console.log(`${createdMessages.count} mensagens de teste inseridas com sucesso.`);
+
+  // Invocação do fluxo de conversão de documentos e geração de embeddings
+  await populateVectorStore();
+
   console.log('Seed concluído com sucesso!');
 }
 

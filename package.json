@@ -9,7 +9,7 @@
     "build": "tsc",
 
     "db:push": "prisma db push",
-    "db:seed": "prisma db seed && ts-node cod_fonte/rag/doc_conversor.ts",
+    "db:seed": "prisma db seed",
     "db:reset": "ts-node cod_fonte/database/reset.ts",
     "db:all": "npm run db:reset && npm run db:push && npm run db:seed",
 

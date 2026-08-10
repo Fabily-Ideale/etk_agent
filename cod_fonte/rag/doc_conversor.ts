@@ -154,8 +154,13 @@ export async function convert_single_document(
   source_path: string,
   target_dir: string
 ): Promise<converted_document | null> {
-  const extension = path.extname(source_path).toLowerCase();
   const filename = path.basename(source_path);
+
+  if (filename.startsWith('.')) {
+    return null;
+  }
+
+  const extension = path.extname(source_path).toLowerCase();
 
   if (!fs.existsSync(target_dir)) {
     fs.mkdirSync(target_dir, { recursive: true });
@@ -195,6 +200,9 @@ export async function process_directory_documents(
   const results: converted_document[] = [];
 
   for (const file of files) {
+    if (file.startsWith('.')) {
+      continue;
+    }
     const full_source_path = path.join(source_dir, file);
     const stat = fs.statSync(full_source_path);
 
@@ -213,11 +221,45 @@ export function prepare_chunks(
   doc: converted_document,
   options?: chunking_options
 ): document_chunk[] {
+  const text = doc.content;
+  const chunks: document_chunk[] = [];
+
+  // Verificação de seções Markdown com '## '
+  const has_heading_sections = /(^|\n)##\s+/.test(text);
+
+  if (has_heading_sections) {
+    const raw_sections = text.split(/(?=(?:^|\n)##\s+)/g);
+    let chunk_counter = 0;
+
+    for (const raw_section of raw_sections) {
+      const section = raw_section.trim();
+      if (!section || (section.startsWith('# ') && !section.includes('## '))) {
+        continue;
+      }
+
+      chunks.push({
+        id: `${doc.filename_target}_chunk_${chunk_counter}`,
+        source_file: doc.target_path,
+        chunk_index: chunk_counter,
+        content: section,
+        metadata: {
+          source_original: doc.source_path,
+          filename_source: doc.filename_source,
+          extension_source: doc.extension_source,
+        },
+      });
+      chunk_counter++;
+    }
+
+    if (chunks.length > 0) {
+      return chunks;
+    }
+  }
+
+  // Fallback: chunkenização baseada em tamanho de caracteres
   const chunk_size = options?.chunk_size ?? 1000;
   const chunk_overlap = options?.chunk_overlap ?? 200;
-  const text = doc.content;
 
-  const chunks: document_chunk[] = [];
   let start_index = 0;
   let chunk_counter = 0;
 
