@@ -1,5 +1,8 @@
 node_modules/
 .agent/
-.gitignore
 .env
-.cod_result/
+cod_result/
+cod_fonte/rag/doc_bruto/*
+!.gitkeep
+cod_fonte/rag/doc_markdown/*
+!.gitkeep

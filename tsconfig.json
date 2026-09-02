@@ -2,7 +2,7 @@
   "compilerOptions": {
     "module": "nodenext",
     "target": "esnext",
-    "types": [],
+    "types": ["node"],
     "rootDir": "./cod_fonte",
     "outDir": "./cod_result",
     "strict": true,
