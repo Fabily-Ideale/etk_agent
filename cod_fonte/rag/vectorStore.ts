@@ -9,7 +9,15 @@ export async function populateVectorStore(force_reload = false): Promise<void> {
 
   const converted_docs = await process_directory_documents(source_dir, target_dir);
 
-  if (converted_docs.length === 0) {
+  const active_target_paths = converted_docs.map(doc => doc.target_path);
+  if (active_target_paths.length > 0) {
+    await prisma.documentEmbedding.deleteMany({
+      where: {
+        source: { notIn: active_target_paths },
+      },
+    });
+  } else {
+    await prisma.documentEmbedding.deleteMany();
     return;
   }
 

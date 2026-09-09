@@ -2,7 +2,6 @@ import fs from 'fs';
 import path from 'path';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
-import { queryDocuments } from '../vectorStore';
 
 export interface service_item {
   nome: string;
@@ -103,18 +102,20 @@ function format_service_output(service: service_item): string {
 
   const price_str = price_parts.length > 0 ? price_parts.join(' | ') : 'Sob consulta';
 
-  return `### ${service.nome}\n- **Categoria**: ${service.categoria}\n- **Descricao**: ${service.descricao}\n- **Valores**: ${price_str}`;
+  return `*${service.nome}* (${service.categoria})\n- Descricao: ${service.descricao}\n- Valores: ${price_str}`;
 }
 
 export const services_tool = tool(
   async ({ termo, categoria, obter_todos }) => {
     const all_services = load_services();
 
-    if (obter_todos) {
-      if (all_services.length === 0) {
-        return 'Nenhum servico cadastrado no catalogo.';
-      }
-      return all_services.map(format_service_output).join('\n\n');
+    if (all_services.length === 0) {
+      return 'Nenhum servico cadastrado no catalogo.';
+    }
+
+    if (obter_todos && !categoria) {
+      const categories = Array.from(new Set(all_services.map(item => item.categoria)));
+      return `O catalogo possui varias categorias. Para uma consulta objetiva, selecione uma destas categorias:\n${categories.map(c => `- ${c}`).join('\n')}`;
     }
 
     let filtered = all_services;
@@ -124,6 +125,13 @@ export const services_tool = tool(
       filtered = filtered.filter(item =>
         normalize_text(item.categoria).includes(normalized_category)
       );
+    }
+
+    if (obter_todos && categoria) {
+      if (filtered.length === 0) {
+        return `Nenhum servico encontrado para a categoria "${categoria}".`;
+      }
+      return filtered.map(format_service_output).join('\n\n');
     }
 
     if (termo) {
@@ -150,15 +158,6 @@ export const services_tool = tool(
         return keyword_matches.map(format_service_output).join('\n\n');
       }
 
-      const vector_results = await queryDocuments(termo, 3);
-      const vector_services = vector_results.filter(
-        res => res.metadata && res.metadata.filename_source === 'precos.csv'
-      );
-
-      if (vector_services.length > 0) {
-        return vector_services.map(res => res.content).join('\n\n');
-      }
-
       return `Nenhum servico especifico encontrado para o termo "${termo}".`;
     }
 
@@ -171,12 +170,12 @@ export const services_tool = tool(
   {
     name: 'consultar_servicos',
     description:
-      'Consulta servicos, precos, valores, diagnosticos, reparos, formatacoes, instalacoes e solucoes no catalogo oficial da Isso-Tek. Use obter_todos=true para listar todos os servicos.',
+      'Consulta servicos, precos, valores e descricoes no catalogo oficial da Isso-Tek. Se o usuario pedir o catalogo completo ou todos os precos, use obter_todos=true e defina a categoria desejada.',
     schema: z.object({
       termo: z
         .string()
         .optional()
-        .describe('Termo de busca, palavra-chave ou tipo de servico procurado (ex: diagnostico, formatacao, site, rede)'),
+        .describe('Termo de busca ou servico procurado (ex: diagnostico, formatacao, site, rede)'),
       categoria: z
         .string()
         .optional()
@@ -184,7 +183,7 @@ export const services_tool = tool(
       obter_todos: z
         .boolean()
         .optional()
-        .describe('Defina como true quando o usuario pedir para listar todos os servicos ou catalogo completo'),
+        .describe('Defina como true para listar os servicos de uma categoria especifica'),
     }),
   }
 );
