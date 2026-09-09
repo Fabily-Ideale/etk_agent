@@ -9,10 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Rotas da API (Teste via Postman)
 app.use('/api', apiRoutes);
-
-// Rotas do Webhook (Meta/WhatsApp)
 app.use('/webhook', webhookRoutes);
 
 app.listen(env.PORT, () => {
