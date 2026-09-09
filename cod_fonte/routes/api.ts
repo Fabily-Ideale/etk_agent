@@ -1,9 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { handleUserMessage } from '../rag/agent';
+import { handle_user_message } from '../rag/agent';
 
 const router = Router();
 
-// Endpoint para testar o agente no Postman
 router.post('/chat', async (req: Request, res: Response): Promise<void> => {
   try {
     const { from, text } = req.body;
@@ -13,7 +12,7 @@ router.post('/chat', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const answer = await handleUserMessage(from, text);
+    const answer = await handle_user_message(from, text);
     
     res.json({
       from,
