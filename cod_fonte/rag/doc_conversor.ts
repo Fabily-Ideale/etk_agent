@@ -173,16 +173,16 @@ export async function convert_single_document(
     return copy_markdown_file(source_path, target_path);
   }
 
-  if (extension === '.csv') {
-    return convert_csv_to_markdown(source_path, target_path);
-  }
-
   if (extension === '.pdf') {
     return convert_pdf_to_markdown(source_path, target_path);
   }
 
+  if (extension === '.csv') {
+    return null;
+  }
+
   console.warn(
-    `[AVISO] O arquivo "${filename}" possui extensão não suportada ("${extension}"). Extensões aceitas: .md, .pdf, .csv.`
+    `[AVISO] O arquivo "${filename}" possui extensão não suportada ("${extension}"). Extensões aceitas: .md, .pdf.`
   );
   return null;
 }
