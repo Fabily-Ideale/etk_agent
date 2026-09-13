@@ -14,6 +14,10 @@ const envSchema = z.object({
   WA_ACCESS_TOKEN: z.string().optional(),
   WA_PHONE_NUMBER_ID: z.string().optional(),
   VERIFY_TOKEN: z.string().optional(),
+  RATE_LIMIT_IP_MAX_REQUESTS: z.coerce.number().default(30),
+  RATE_LIMIT_IP_WINDOW_MS: z.coerce.number().default(60000),
+  RATE_LIMIT_PHONE_MAX_REQUESTS: z.coerce.number().default(10),
+  RATE_LIMIT_PHONE_WINDOW_MS: z.coerce.number().default(60000),
 });
 
 const parsed = envSchema.safeParse(process.env);
