@@ -6,8 +6,7 @@
   "scripts": {
     "start": "node cod_result/server.js",
     "dev": "ts-node-dev --respawn --transpile-only cod_fonte/server.ts",
-    "build": "tsc",
-
+    "build": "tsc && copyfiles -u 1 \"cod_fonte/rag/doc_bruto/**/*\" \"cod_fonte/rag/doc_markdown/**/*\" cod_result",
     "db:push": "prisma db push",
     "db:seed": "prisma db seed",
     "db:reset": "ts-node cod_fonte/database/reset.ts",
@@ -34,6 +33,7 @@
     "cors": "^2.8.6",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "langsmith": "^0.10.2",
     "ngrok": "^5.0.0-beta.2",
     "pdf-parse": "^2.4.5",
     "zod": "^4.4.3"
@@ -45,6 +45,7 @@
     "@types/node": "^26.1.1",
     "@types/pdf-parse": "^1.1.5",
     "@types/pg": "^8.20.0",
+    "copyfiles": "^2.4.1",
     "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
     "ts-node-dev": "^2.0.0",

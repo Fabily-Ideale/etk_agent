@@ -1,4 +1,5 @@
 import { HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage } from '@langchain/core/messages';
+import { traceable } from 'langsmith/traceable';
 import { llm } from '../config/llm';
 import { prisma } from '../config/prisma';
 import { agent_tools, services_tool, knowledge_tool } from './tools';
@@ -101,6 +102,8 @@ export async function handleUserMessage(phone_number: string, text: string): Pro
   }
 
   try {
+const execute_agent_loop = traceable(
+  async (conversation_messages: BaseMessage[]): Promise<string> => {
     let current_iteration = 0;
     const max_iterations = 5;
 
@@ -112,19 +115,9 @@ export async function handleUserMessage(phone_number: string, text: string): Pro
 
       const tool_calls = response.tool_calls;
       if (!tool_calls || tool_calls.length === 0) {
-        const final_answer = typeof response.content === 'string'
+        return typeof response.content === 'string'
           ? response.content
           : JSON.stringify(response.content);
-
-        await prisma.message.create({
-          data: {
-            text: final_answer,
-            role: 'assistant',
-            clientId: client.id,
-          },
-        });
-
-        return final_answer;
       }
 
       for (const call of tool_calls) {
@@ -152,19 +145,83 @@ export async function handleUserMessage(phone_number: string, text: string): Pro
       }
     }
 
-    const fallback_message = 'Nao foi possivel concluir o processamento dentro do limite de etapas.';
+    return 'Nao foi possivel concluir o processamento dentro do limite de etapas.';
+  },
+  {
+    name: 'agent_execution_loop',
+    run_type: 'chain',
+    tags: ['etk_agent', 'whatsapp_support'],
+  }
+);
+
+export const handle_user_message = traceable(
+  async (phone_number: string, text: string): Promise<string> => {
+    let client = await prisma.client.findUnique({
+      where: { phoneNumber: phone_number },
+    });
+
+    if (!client) {
+      client = await prisma.client.create({
+        data: { phoneNumber: phone_number },
+      });
+    }
+
     await prisma.message.create({
       data: {
-        text: fallback_message,
-        role: 'assistant',
+        text,
+        role: 'user',
         clientId: client.id,
       },
     });
 
-    return fallback_message;
-  } catch (error) {
-    console.error('Erro no processamento do agente com ferramentas:', error);
-    const error_response = 'Desculpe, ocorreu um erro ao processar sua solicitacao.';
-    return error_response;
+    const raw_history = await prisma.message.findMany({
+      where: { clientId: client.id },
+      orderBy: { createdAt: 'desc' },
+      take: 6,
+    });
+
+    const history = [...raw_history].reverse();
+
+    const conversation_messages: BaseMessage[] = [new SystemMessage(system_prompt_text)];
+
+    for (const item of history) {
+      if (item.role === 'user') {
+        conversation_messages.push(new HumanMessage(item.text));
+      } else if (item.role === 'assistant') {
+        conversation_messages.push(new AIMessage(item.text));
+      }
+    }
+
+    try {
+      const final_answer = await execute_agent_loop(conversation_messages);
+
+      await prisma.message.create({
+        data: {
+          text: final_answer,
+          role: 'assistant',
+          clientId: client.id,
+        },
+      });
+
+      return final_answer;
+    } catch (error) {
+      console.error('Erro no processamento do agente com ferramentas:', error);
+      return 'Desculpe, ocorreu um erro ao processar sua solicitacao.';
+    }
+  },
+  {
+    name: 'atendimento_etk_agent',
+    run_type: 'chain',
+    tags: ['etk_agent', 'whatsapp_support'],
+    processInputs: (inputs: any) => ({
+      phone_number: inputs.args ? inputs.args[0] : inputs.phone_number,
+      user_message: inputs.args ? inputs.args[1] : inputs.text,
+    }),
+    processOutputs: (output: any) => ({
+      response: typeof output === 'object' && output.outputs !== undefined ? output.outputs : output,
+    }),
   }
-}
+);
+
+export const handleUserMessage = handle_user_message;
+

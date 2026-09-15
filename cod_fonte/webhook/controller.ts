@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { env } from '../config/env';
-import { handleUserMessage } from '../rag/agent';
+import { handle_user_message } from '../rag/agent';
 import axios from 'axios';
 
 const router = Router();
 
-// GET: Meta webhook verification
 router.get('/', (req: Request, res: Response) => {
   const mode = req.query['hub.mode'];
   const token = req.query['hub.verify_token'];
@@ -19,12 +18,11 @@ router.get('/', (req: Request, res: Response) => {
   }
 });
 
-// POST: Handle incoming WhatsApp events
 router.post('/', async (req: Request, res: Response) => {
   const body = req.body;
 
   if (body.object === 'whatsapp_business_account') {
-    res.status(200).send('EVENT_RECEIVED'); // Ack immediately
+    res.status(200).send('EVENT_RECEIVED');
 
     for (const entry of body.entry) {
       const changes = entry.changes[0];
@@ -32,16 +30,14 @@ router.post('/', async (req: Request, res: Response) => {
         const message = changes.value.messages?.[0];
         
         if (message && message.type === 'text') {
-          const from = message.from; // Phone number
+          const from = message.from;
           const text = message.text.body;
 
           console.log(`[WhatsApp] Mensagem recebida de ${from}: ${text}`);
           
           try {
-            // Chama a lógica do RAG
-            const answer = await handleUserMessage(from, text);
+            const answer = await handle_user_message(from, text);
             
-            // Envia a resposta de volta se as credenciais existirem
             if (env.WA_PHONE_NUMBER_ID && env.WA_ACCESS_TOKEN) {
               await axios.post(
                 `https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`,
