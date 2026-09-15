@@ -19,6 +19,9 @@ const delimiter_injection_patterns = [
   /\[\/inst\]/i,
   /###\s*(instruction|system|human|assistant)/i,
   /<\/?(?:mensagem_cliente|system|context|instruction|prompt)>/i,
+  /<script\b/i,
+  /<iframe\b/i,
+  /javascript:/i,
 ];
 
 const jailbreak_patterns = [
