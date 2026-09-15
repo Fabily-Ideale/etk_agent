@@ -12,7 +12,12 @@
     "db:seed": "prisma db seed",
     "db:reset": "ts-node cod_fonte/database/reset.ts",
     "db:all": "npm run db:reset && npm run db:push && npm run db:seed",
-
+    
+    "test:guardrails": "ts-node test/test_guardrails.ts",
+    "test:auth": "ts-node test/test_auth.ts",
+    "test:ratelimit": "ts-node test/test_rate_limiter.ts",
+    "test": "npm run test:guardrails && npm run test:auth && npm run test:ratelimit",
+    
     "ngrok": "ngrok http 3000"
   },
   "prisma": {

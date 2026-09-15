@@ -1,4 +1,4 @@
-import { validate_security_guardrails } from './guardrails';
+import { validate_security_guardrails } from '../security/guardrails';
 
 interface test_case {
   description: string;
