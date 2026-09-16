@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { env } from '../config/env';
 import { handleUserMessage } from '../rag/agent';
+import { log_error_event } from '../logging/logger';
 import axios from 'axios';
 
 const router = Router();
@@ -80,7 +81,7 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
             );
           }
         } catch (error) {
-          console.error('[WhatsApp] Erro ao processar mensagem do webhook:', error);
+          log_error_event('WEBHOOK_MESSAGE_ERROR', error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, { from });
         }
       }
     }

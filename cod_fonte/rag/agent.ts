@@ -4,6 +4,7 @@ import { llm } from '../config/llm';
 import { prisma } from '../config/prisma';
 import { agent_tools, services_tool, knowledge_tool } from './tools';
 import { validate_security_guardrails } from '../security/guardrails';
+import { log_standard_event, log_error_event, log_guardrail_violation_event } from '../logging/logger';
 
 const tools_map: Record<string, (args: any) => Promise<any>> = {
   [services_tool.name]: (args: any) => services_tool.invoke(args),
@@ -94,6 +95,9 @@ const execute_agent_loop = traceable(
 
 export const handle_user_message = traceable(
   async (phone_number: string, text: string): Promise<string> => {
+    const start_time = Date.now();
+    log_standard_event(phone_number, 'request_received');
+
     let client = await prisma.client.findUnique({
       where: { phoneNumber: phone_number },
     });
@@ -108,6 +112,9 @@ export const handle_user_message = traceable(
 
     if (!guardrail_result.is_valid) {
       const security_response = 'Atendimento restrito a clientes da Isso-Tek. Por favor, informe sua duvida sobre servicos de informatica, manutencao ou suporte tecnico.';
+
+      log_guardrail_violation_event(phone_number, guardrail_result.reason_code || 'guardrail_violation', 'blocked');
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'guardrail_blocked' });
 
       await prisma.message.create({
         data: {
@@ -165,9 +172,11 @@ export const handle_user_message = traceable(
         },
       });
 
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'success' });
       return final_answer;
     } catch (error) {
-      console.error('Erro no processamento do agente com ferramentas:', error);
+      log_error_event('AGENT_PROCESSING_ERROR', error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, { phone_number });
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'error' });
       return 'Desculpe, ocorreu um erro ao processar sua solicitacao.';
     }
   },

@@ -3,6 +3,7 @@ import { handleUserMessage } from '../rag/agent';
 import { validate_api_key } from '../security/auth';
 import { create_ip_rate_limiter, create_phone_rate_limiter } from '../security/rate_limiter';
 import { env } from '../config/env';
+import { log_error_event } from '../logging/logger';
 
 const router = Router();
 
@@ -55,7 +56,12 @@ router.post(
         reply: answer,
       });
     } catch (error) {
-      console.error('Erro na rota /chat:', error);
+      log_error_event(
+        'API_CHAT_ROUTE_ERROR',
+        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? error.stack : undefined,
+        { ip: req.ip, from: req.body?.from }
+      );
       res.status(500).json({ error: 'Erro interno ao processar a mensagem.' });
     }
   }
