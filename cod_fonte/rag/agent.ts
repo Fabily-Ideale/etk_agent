@@ -4,6 +4,7 @@ import { llm } from '../config/llm';
 import { prisma } from '../config/prisma';
 import { agent_tools, services_tool, knowledge_tool } from './tools';
 import { validate_security_guardrails } from '../security/guardrails';
+import { log_standard_event, log_error_event, log_guardrail_violation_event } from '../logging/logger';
 
 const tools_map: Record<string, (args: any) => Promise<any>> = {
   [services_tool.name]: (args: any) => services_tool.invoke(args),
@@ -40,68 +41,6 @@ DIRETRIZES PARA CONSULTA DE CATALOGO E SERVICOS:
 4. Para saudacoes simples ou dialogos sociais basicos, responda cordialmente em 1 ou 2 frases sem acionar ferramentas, perguntando como pode ajudar.
 5. Baseie valores e servicos estritamente nas ferramentas. Nao invente precos ou servicos.`;
 
-export async function handleUserMessage(phone_number: string, text: string): Promise<string> {
-  let client = await prisma.client.findUnique({
-    where: { phoneNumber: phone_number },
-  });
-
-  if (!client) {
-    client = await prisma.client.create({
-      data: { phoneNumber: phone_number },
-    });
-  }
-
-  const guardrail_result = validate_security_guardrails(text);
-
-  if (!guardrail_result.is_valid) {
-    const security_response = 'Atendimento restrito a clientes da Isso-Tek. Por favor, informe sua duvida sobre servicos de informatica, manutencao ou suporte tecnico.';
-
-    await prisma.message.create({
-      data: {
-        text,
-        role: 'user',
-        clientId: client.id,
-      },
-    });
-
-    await prisma.message.create({
-      data: {
-        text: security_response,
-        role: 'assistant',
-        clientId: client.id,
-      },
-    });
-
-    return security_response;
-  }
-
-  await prisma.message.create({
-    data: {
-      text: guardrail_result.sanitized_text,
-      role: 'user',
-      clientId: client.id,
-    },
-  });
-
-  const raw_history = await prisma.message.findMany({
-    where: { clientId: client.id },
-    orderBy: { createdAt: 'desc' },
-    take: 6,
-  });
-
-  const history = [...raw_history].reverse();
-
-  const conversation_messages: BaseMessage[] = [new SystemMessage(system_prompt_text)];
-
-  for (const item of history) {
-    if (item.role === 'user') {
-      conversation_messages.push(new HumanMessage(`<mensagem_cliente>${item.text}</mensagem_cliente>`));
-    } else if (item.role === 'assistant') {
-      conversation_messages.push(new AIMessage(item.text));
-    }
-  }
-
-  try {
 const execute_agent_loop = traceable(
   async (conversation_messages: BaseMessage[]): Promise<string> => {
     let current_iteration = 0;
@@ -156,6 +95,9 @@ const execute_agent_loop = traceable(
 
 export const handle_user_message = traceable(
   async (phone_number: string, text: string): Promise<string> => {
+    const start_time = Date.now();
+    log_standard_event(phone_number, 'request_received');
+
     let client = await prisma.client.findUnique({
       where: { phoneNumber: phone_number },
     });
@@ -166,9 +108,36 @@ export const handle_user_message = traceable(
       });
     }
 
+    const guardrail_result = validate_security_guardrails(text);
+
+    if (!guardrail_result.is_valid) {
+      const security_response = 'Atendimento restrito a clientes da Isso-Tek. Por favor, informe sua duvida sobre servicos de informatica, manutencao ou suporte tecnico.';
+
+      log_guardrail_violation_event(phone_number, guardrail_result.reason_code || 'guardrail_violation', 'blocked');
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'guardrail_blocked' });
+
+      await prisma.message.create({
+        data: {
+          text,
+          role: 'user',
+          clientId: client.id,
+        },
+      });
+
+      await prisma.message.create({
+        data: {
+          text: security_response,
+          role: 'assistant',
+          clientId: client.id,
+        },
+      });
+
+      return security_response;
+    }
+
     await prisma.message.create({
       data: {
-        text,
+        text: guardrail_result.sanitized_text,
         role: 'user',
         clientId: client.id,
       },
@@ -186,7 +155,7 @@ export const handle_user_message = traceable(
 
     for (const item of history) {
       if (item.role === 'user') {
-        conversation_messages.push(new HumanMessage(item.text));
+        conversation_messages.push(new HumanMessage(`<mensagem_cliente>${item.text}</mensagem_cliente>`));
       } else if (item.role === 'assistant') {
         conversation_messages.push(new AIMessage(item.text));
       }
@@ -203,9 +172,11 @@ export const handle_user_message = traceable(
         },
       });
 
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'success' });
       return final_answer;
     } catch (error) {
-      console.error('Erro no processamento do agente com ferramentas:', error);
+      log_error_event('AGENT_PROCESSING_ERROR', error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, { phone_number });
+      log_standard_event(phone_number, 'response_sent', { duration_ms: Date.now() - start_time, status: 'error' });
       return 'Desculpe, ocorreu um erro ao processar sua solicitacao.';
     }
   },

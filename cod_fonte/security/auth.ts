@@ -3,6 +3,10 @@ import { timingSafeEqual } from 'crypto';
 import { env } from '../config/env';
 
 export function safe_compare_tokens(provided_token: string, expected_token: string): boolean {
+  if (typeof provided_token !== 'string' || typeof expected_token !== 'string') {
+    return false;
+  }
+
   const provided_buffer = Buffer.from(provided_token, 'utf8');
   const expected_buffer = Buffer.from(expected_token, 'utf8');
 
@@ -14,9 +18,17 @@ export function safe_compare_tokens(provided_token: string, expected_token: stri
 }
 
 export function extract_token_from_request(req: Request): string | null {
+  if (!req || !req.headers) {
+    return null;
+  }
+
   const x_api_key = req.headers['x-api-key'];
   if (typeof x_api_key === 'string' && x_api_key.trim().length > 0) {
     return x_api_key.trim();
+  }
+
+  if (Array.isArray(x_api_key) && x_api_key.length > 0 && typeof x_api_key[0] === 'string' && x_api_key[0].trim().length > 0) {
+    return x_api_key[0].trim();
   }
 
   const authorization_header = req.headers['authorization'];
@@ -30,6 +42,10 @@ export function extract_token_from_request(req: Request): string | null {
   const x_verify_token = req.headers['x-verify-token'];
   if (typeof x_verify_token === 'string' && x_verify_token.trim().length > 0) {
     return x_verify_token.trim();
+  }
+
+  if (Array.isArray(x_verify_token) && x_verify_token.length > 0 && typeof x_verify_token[0] === 'string' && x_verify_token[0].trim().length > 0) {
+    return x_verify_token[0].trim();
   }
 
   return null;

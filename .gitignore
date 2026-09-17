@@ -6,3 +6,5 @@ cod_fonte/rag/doc_bruto/*
 !.gitkeep
 cod_fonte/rag/doc_markdown/*
 !.gitkeep
+logs/*
+!logs/.gitkeep

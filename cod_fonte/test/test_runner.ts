@@ -35,6 +35,10 @@ const suites: suite_definition[] = [
     name: 'API Chat Direta (Validacao de Requisicoes HTTP / Postman)',
     file_path: path.join(__dirname, 'test_api_chat.ts'),
   },
+  {
+    name: 'Logs e Monitoramento Segregado (Padrao, Erros e Guardrails)',
+    file_path: path.join(__dirname, 'test_logging.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {

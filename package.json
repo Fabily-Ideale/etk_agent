@@ -17,6 +17,7 @@
     "test:ratelimit": "ts-node cod_fonte/test/test_rate_limiter.ts",
     "test:webhook": "ts-node cod_fonte/test/test_webhook.ts",
     "test:api": "ts-node cod_fonte/test/test_api_chat.ts",
+    "test:logging": "ts-node cod_fonte/test/test_logging.ts",
     "test": "ts-node cod_fonte/test/test_runner.ts",
     
     "ngrok": "ngrok http 3000"
