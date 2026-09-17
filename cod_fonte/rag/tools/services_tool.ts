@@ -170,7 +170,7 @@ export const services_tool = tool(
   {
     name: 'consultar_servicos',
     description:
-      'Consulta servicos, precos, valores e descricoes no catalogo oficial da Isso-Tek. Se o usuario pedir o catalogo completo ou todos os precos, use obter_todos=true e defina a categoria desejada.',
+      'Consulta servicos, precos, valores e descricoes no catalogo oficial da Это-Тек. Se o usuario pedir o catalogo completo ou todos os precos, use obter_todos=true e defina a categoria desejada.',
     schema: z.object({
       termo: z
         .string()

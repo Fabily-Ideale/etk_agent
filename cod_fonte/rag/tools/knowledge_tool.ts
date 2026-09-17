@@ -21,7 +21,7 @@ export const knowledge_tool = tool(
   {
     name: 'consultar_base_conhecimento',
     description:
-      'Consulta a base de conhecimento institucional da Isso-Tek (historico, quem somos, branding, missao, visao, valores, politicas, estrategia de redes sociais e artigos tecnicos).',
+      'Consulta a base de conhecimento institucional da Это-Тек (historico, quem somos, branding, missao, visao, valores, politicas, estrategia de redes sociais e artigos tecnicos).',
     schema: z.object({
       pergunta_ou_termo: z
         .string()

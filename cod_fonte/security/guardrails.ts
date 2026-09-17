@@ -44,7 +44,7 @@ const staff_impersonation_patterns = [
   /\bsudo\s+[a-z_]+/i,
   /\bmodo\s+(admin|administrador|manutencao|interno|colaborador|funcionario)\b/i,
   /\b(libere|forneca|passe)\s+(?:[a-z_]+\s+){0,2}(acesso\s+root|privilegios|painel\s+de\s+controle|senha|credenciais|token)\b/i,
-  /\b(trabalho\s+na\s+isso-tek|sou\s+da\s+equipe\s+interna|sou\s+funcionario\s+da\s+isso-tek|sou\s+colega\s+de\s+trabalho)\b/i,
+  /\b(trabalho\s+na\s+(?:isso-tek|eto[-_]?tek|это-тек)|sou\s+da\s+equipe\s+interna|sou\s+funcionario\s+da\s+(?:isso-tek|eto[-_]?tek|это-тек)|sou\s+colega\s+de\s+trabalho)\b/iu,
   /\b(suporte\s+da\s+meta|suporte\s+tecnico\s+do\s+whatsapp|equipe\s+do\s+whatsapp)\b/i,
 ];
 
