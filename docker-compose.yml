@@ -9,12 +9,93 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?Defina POSTGRES_DB no arquivo .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init_chatwoot_db.sh:/docker-entrypoint-initdb.d/init_chatwoot_db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: rag_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  chatwoot_web:
+    image: chatwoot/chatwoot:latest
+    container_name: chatwoot_web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: chatwoot_production
+      POSTGRES_USERNAME: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/chatwoot_production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-pt_BR}
+      FORCE_SSL: ${FORCE_SSL:-false}
+      ENABLE_ACCOUNT_SIGNUP: ${ENABLE_ACCOUNT_SIGNUP:-false}
+      ACTIVE_STORAGE_SERVICE: local
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    volumes:
+      - chatwoot_storage:/app/storage
+    ports:
+      - "3000:3000"
+
+  chatwoot_worker:
+    image: chatwoot/chatwoot:latest
+    container_name: chatwoot_worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      POSTGRES_DATABASE: chatwoot_production
+      POSTGRES_USERNAME: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/chatwoot_production
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-pt_BR}
+      FORCE_SSL: ${FORCE_SSL:-false}
+      ENABLE_ACCOUNT_SIGNUP: ${ENABLE_ACCOUNT_SIGNUP:-false}
+      ACTIVE_STORAGE_SERVICE: local
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    volumes:
+      - chatwoot_storage:/app/storage
 
   app:
     build:
@@ -28,13 +109,15 @@ services:
     env_file:
       - .env
     environment:
-      PORT: ${PORT:-3000}
+      PORT: ${PORT:-3001}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       LOG_DIR: /app/logs
     volumes:
       - ./logs:/app/logs
     ports:
-      - "${PORT:-3000}:${PORT:-3000}"
+      - "${PORT:-3001}:${PORT:-3001}"
 
 volumes:
   postgres_data:
+  redis_data:
+  chatwoot_storage:
