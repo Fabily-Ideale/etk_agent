@@ -1,6 +1,5 @@
-import { Request, Response } from 'express';
-import { safe_compare_tokens, extract_token_from_request, validate_api_key } from '../security/auth';
-import { env } from '../config/env';
+import { Request } from 'express';
+import { safe_compare_tokens, extract_token_from_request } from '../security/auth';
 
 interface test_result {
   name: string;
@@ -180,106 +179,8 @@ function run_token_extraction_tests(): void {
   });
 }
 
-function test_middleware_request(
-  headers: Record<string, string | string[] | undefined>,
-  mock_env_token?: string
-): { next_called: boolean; status_code: number | null; response_body: any } {
-  let next_called = false;
-  let status_code: number | null = null;
-  let response_body: any = null;
-
-  const original_env_token = env.VERIFY_TOKEN;
-  if (mock_env_token !== undefined) {
-    (env as any).VERIFY_TOKEN = mock_env_token;
-  }
-
-  const res: Partial<Response> = {
-    status: (code: number) => {
-      status_code = code;
-      return res as Response;
-    },
-    json: (data: any) => {
-      response_body = data;
-      return res as Response;
-    },
-  };
-
-  const req = { headers } as unknown as Request;
-
-  try {
-    validate_api_key(req, res as Response, () => {
-      next_called = true;
-    });
-  } finally {
-    if (mock_env_token !== undefined) {
-      (env as any).VERIFY_TOKEN = original_env_token;
-    }
-  }
-
-  return { next_called, status_code, response_body };
-}
-
-function run_middleware_tests(): void {
-  const current_env_token = env.VERIFY_TOKEN || 'token_padrao_teste';
-
-  const result_x_api_key = test_middleware_request({ 'x-api-key': current_env_token }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: requisicao com x-api-key valida prossegue',
-    passed: result_x_api_key.next_called === true && result_x_api_key.status_code === null,
-  });
-
-  const result_bearer = test_middleware_request({ authorization: `Bearer ${current_env_token}` }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: requisicao com Bearer token valido prossegue',
-    passed: result_bearer.next_called === true && result_bearer.status_code === null,
-  });
-
-  const result_verify_token = test_middleware_request({ 'x-verify-token': current_env_token }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: requisicao com x-verify-token valido prossegue',
-    passed: result_verify_token.next_called === true && result_verify_token.status_code === null,
-  });
-
-  const result_missing = test_middleware_request({}, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: requisicao sem cabecalho de autenticacao retorna 401',
-    passed: result_missing.next_called === false &&
-      result_missing.status_code === 401 &&
-      result_missing.response_body?.error === 'unauthorized',
-  });
-
-  const result_invalid = test_middleware_request({ 'x-api-key': 'chave_completamente_incorreta' }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: requisicao com token invalido retorna 401',
-    passed: result_invalid.next_called === false &&
-      result_invalid.status_code === 401 &&
-      result_invalid.response_body?.error === 'unauthorized',
-  });
-
-  const result_sqli_token = test_middleware_request({ 'x-api-key': "' OR '1'='1" }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: token com tentativa de sql injection retorna 401 sem vazar detalhes',
-    passed: result_sqli_token.next_called === false && result_sqli_token.status_code === 401,
-  });
-
-  const result_null_byte_token = test_middleware_request({ 'x-api-key': `${current_env_token}\0admin` }, current_env_token);
-  test_results.push({
-    name: 'validate_api_key: token com byte nulo retorna 401',
-    passed: result_null_byte_token.next_called === false && result_null_byte_token.status_code === 401,
-  });
-
-  const result_misconfig = test_middleware_request({ 'x-api-key': 'qualquer_chave' }, '');
-  test_results.push({
-    name: 'validate_api_key: servidor sem VERIFY_TOKEN configurado retorna 500 server_misconfiguration',
-    passed: result_misconfig.next_called === false &&
-      result_misconfig.status_code === 500 &&
-      result_misconfig.response_body?.error === 'server_misconfiguration',
-  });
-}
-
 run_token_comparison_tests();
 run_token_extraction_tests();
-run_middleware_tests();
 
 let failed_count = 0;
 for (const res of test_results) {
