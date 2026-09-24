@@ -34,7 +34,7 @@ COPY --from=builder /app/cod_result ./cod_result
 RUN mkdir -p /app/logs
 
 COPY docker_entrypoint.sh ./
-RUN chmod +x docker_entrypoint.sh
+RUN sed -i 's/\r$//' ./docker_entrypoint.sh && chmod +x docker_entrypoint.sh
 
 EXPOSE 3000 3001
 

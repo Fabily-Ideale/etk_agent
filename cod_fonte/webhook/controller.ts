@@ -6,86 +6,92 @@ import axios from 'axios';
 
 const router = Router();
 
-router.get('/', (req: Request, res: Response): void => {
-  const mode = req.query ? req.query['hub.mode'] : undefined;
-  const token = req.query ? req.query['hub.verify_token'] : undefined;
-  const challenge = req.query ? req.query['hub.challenge'] : undefined;
-
-  if (mode === 'subscribe' && typeof token === 'string' && env.VERIFY_TOKEN && token === env.VERIFY_TOKEN) {
-    res.status(200).send(challenge ?? '');
+async function send_chatwoot_message(
+  account_id: number | string,
+  conversation_id: number | string,
+  content: string
+): Promise<void> {
+  if (!env.CHATWOOT_API_TOKEN) {
     return;
   }
 
-  res.sendStatus(403);
-});
+  const url = `${env.CHATWOOT_BASE_URL}/api/v1/accounts/${account_id}/conversations/${conversation_id}/messages`;
 
-router.post('/', async (req: Request, res: Response): Promise<void> => {
+  await axios.post(
+    url,
+    {
+      content,
+      message_type: 'outgoing',
+    },
+    {
+      headers: {
+        api_access_token: env.CHATWOOT_API_TOKEN,
+      },
+      timeout: 10000,
+    }
+  );
+}
+
+async function process_chatwoot_webhook(req: Request, res: Response): Promise<void> {
   const body = req.body;
 
-  if (!body || typeof body !== 'object' || body.object !== 'whatsapp_business_account') {
-    res.sendStatus(404);
+  if (!body || typeof body !== 'object') {
+    res.status(400).json({ error: 'corpo_invalido' });
     return;
   }
 
-  res.status(200).send('EVENT_RECEIVED');
+  res.status(200).json({ status: 'received' });
 
-  if (!Array.isArray(body.entry)) {
+  if (body.event !== 'message_created') {
     return;
   }
 
-  for (const entry of body.entry) {
-    if (!entry || !Array.isArray(entry.changes)) {
-      continue;
-    }
-
-    for (const change of entry.changes) {
-      if (!change || change.field !== 'messages' || !change.value) {
-        continue;
-      }
-
-      const messages = change.value.messages;
-      if (!Array.isArray(messages) || messages.length === 0) {
-        continue;
-      }
-
-      for (const message of messages) {
-        if (!message || message.type !== 'text' || !message.text || typeof message.text.body !== 'string') {
-          continue;
-        }
-
-        const from = message.from;
-        const text = message.text.body;
-
-        if (!from || typeof from !== 'string' || text.trim().length === 0) {
-          continue;
-        }
-
-        try {
-          const answer = await handleUserMessage(from, text);
-
-          if (env.WA_PHONE_NUMBER_ID && env.WA_ACCESS_TOKEN) {
-            await axios.post(
-              `https://graph.facebook.com/v21.0/${env.WA_PHONE_NUMBER_ID}/messages`,
-              {
-                messaging_product: 'whatsapp',
-                to: from,
-                type: 'text',
-                text: { body: answer },
-              },
-              {
-                headers: {
-                  Authorization: `Bearer ${env.WA_ACCESS_TOKEN}`,
-                },
-                timeout: 10000,
-              }
-            );
-          }
-        } catch (error) {
-          log_error_event('WEBHOOK_MESSAGE_ERROR', error instanceof Error ? error.message : String(error), error instanceof Error ? error.stack : undefined, { from });
-        }
-      }
-    }
+  if (body.message_type !== 'incoming') {
+    return;
   }
+
+  if (body.private === true) {
+    return;
+  }
+
+  const text = typeof body.content === 'string' ? body.content.trim() : '';
+  if (text.length === 0) {
+    return;
+  }
+
+  const conversation_id = body.conversation?.id;
+  const account_id = body.account?.id;
+
+  if (!conversation_id || !account_id) {
+    return;
+  }
+
+  const sender_phone = body.sender?.phone_number;
+  const sender_name = body.sender?.name;
+  const sender_identifier = typeof sender_phone === 'string' && sender_phone.trim().length > 0
+    ? sender_phone.trim()
+    : typeof sender_name === 'string' && sender_name.trim().length > 0
+    ? sender_name.trim()
+    : `chatwoot_${conversation_id}`;
+
+  try {
+    const answer = await handleUserMessage(sender_identifier, text);
+    await send_chatwoot_message(account_id, conversation_id, answer);
+  } catch (error) {
+    log_error_event(
+      'CHATWOOT_WEBHOOK_PROCESSING_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      { conversation_id, account_id, sender_identifier }
+    );
+  }
+}
+
+router.get('/', (_req: Request, res: Response): void => {
+  res.status(200).json({ status: 'ok' });
 });
+
+router.post('/', process_chatwoot_webhook);
+router.post('/chatwoot', process_chatwoot_webhook);
 
 export default router;
