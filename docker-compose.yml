@@ -114,8 +114,12 @@ services:
       LOG_DIR: /app/logs
     volumes:
       - ./logs:/app/logs
-    ports:
-      - "${PORT:-3001}:${PORT:-3001}"
+    expose:
+      - "${PORT:-3001}"
+    networks:
+      default:
+        aliases:
+          - agente.local
 
 volumes:
   postgres_data:
