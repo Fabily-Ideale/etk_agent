@@ -64,6 +64,11 @@ services:
       - chatwoot_storage:/app/storage
     ports:
       - "3000:3000"
+    networks:
+      default:
+        aliases:
+          - chatwoot
+
 
   chatwoot_worker:
     image: chatwoot/chatwoot:latest
@@ -122,6 +127,17 @@ services:
       default:
         aliases:
           - agente.local
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: rag_cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${cloudflare_tunnel:?Defina cloudflare_tunnel no arquivo .env}
+    depends_on:
+      - chatwoot_web
+    networks:
+      - default
+
 
 volumes:
   postgres_data:
