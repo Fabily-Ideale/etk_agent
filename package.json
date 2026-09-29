@@ -11,16 +11,13 @@
     "db:seed": "prisma db seed",
     "db:reset": "ts-node cod_fonte/database/reset.ts",
     "db:all": "npm run db:reset && npm run db:push && npm run db:seed",
-    
     "test:guardrails": "ts-node cod_fonte/test/test_guardrails.ts",
     "test:auth": "ts-node cod_fonte/test/test_auth.ts",
     "test:ratelimit": "ts-node cod_fonte/test/test_rate_limiter.ts",
     "test:webhook": "ts-node cod_fonte/test/test_webhook.ts",
     "test:api": "ts-node cod_fonte/test/test_api_chat.ts",
     "test:logging": "ts-node cod_fonte/test/test_logging.ts",
-    "test": "ts-node cod_fonte/test/test_runner.ts",
-    
-    "ngrok": "ngrok http 3000"
+    "test": "ts-node cod_fonte/test/test_runner.ts"
   },
   "prisma": {
     "seed": "ts-node cod_fonte/database/seed.ts"
@@ -36,7 +33,6 @@
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "langsmith": "^0.10.2",
-    "ngrok": "^5.0.0-beta.2",
     "pdf-parse": "^2.4.5",
     "prisma": "^7.8.0",
     "zod": "^4.4.3"
