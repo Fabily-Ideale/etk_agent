@@ -50,14 +50,14 @@ services:
       POSTGRES_USERNAME: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/chatwoot_production
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: redis://redis:6379
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-pt_BR}
-      FORCE_SSL: ${FORCE_SSL:-false}
-      ENABLE_ACCOUNT_SIGNUP: ${ENABLE_ACCOUNT_SIGNUP:-false}
+      DEFAULT_LOCALE: pt_BR
+      FORCE_SSL: "false"
+      ENABLE_ACCOUNT_SIGNUP: "false"
       ACTIVE_STORAGE_SERVICE: local
-      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: ${SAFE_FETCH_ALLOW_PRIVATE_NETWORK:-true}
+      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
     volumes:
@@ -91,14 +91,14 @@ services:
       POSTGRES_USERNAME: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/chatwoot_production
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: redis://redis:6379
       SECRET_KEY_BASE: ${SECRET_KEY_BASE}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
-      DEFAULT_LOCALE: ${DEFAULT_LOCALE:-pt_BR}
-      FORCE_SSL: ${FORCE_SSL:-false}
-      ENABLE_ACCOUNT_SIGNUP: ${ENABLE_ACCOUNT_SIGNUP:-false}
+      DEFAULT_LOCALE: pt_BR
+      FORCE_SSL: "false"
+      ENABLE_ACCOUNT_SIGNUP: "false"
       ACTIVE_STORAGE_SERVICE: local
-      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: ${SAFE_FETCH_ALLOW_PRIVATE_NETWORK:-true}
+      SAFE_FETCH_ALLOW_PRIVATE_NETWORK: "true"
     entrypoint: docker/entrypoints/rails.sh
     command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
     volumes:
@@ -132,7 +132,7 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: rag_cloudflared
     restart: unless-stopped
-    command: tunnel --no-autoupdate run --token ${cloudflare_tunnel:?Defina cloudflare_tunnel no arquivo .env}
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN:?Defina CLOUDFLARE_TUNNEL_TOKEN no arquivo .env}
     depends_on:
       - chatwoot_web
     networks:

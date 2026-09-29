@@ -4,10 +4,14 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const env_schema = z.object({
-  PORT: z.string().default('3000'),
-  DATABASE_URL: z.string().url(),
+  PORT: z.string(),
+  POSTGRES_USER: z.string(),
+  POSTGRES_PASSWORD: z.string(),
+  POSTGRES_HOST: z.string(),
+  POSTGRES_PORT: z.coerce.number(),
+  POSTGRES_DB: z.string(),
+  DATABASE_URL: z.string().optional(),
   OPENAI_API_KEY: z.string().min(1),
-  NVIDIA_NIM_API_KEY: z.string().optional(),
   NVIDIA_NIM_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   NVIDIA_NIM_MODEL: z.string().default('meta/llama3-70b-instruct'),
   NVIDIA_NIM_EMBEDDING_MODEL: z.string().default('nvidia/nv-embedqa-e5-v5'),
@@ -24,6 +28,12 @@ const env_schema = z.object({
   LOG_DIR: z.string().default('./logs'),
   LOG_MAX_LINES: z.coerce.number().default(10000),
   LOG_MAX_FILES: z.coerce.number().default(1)
+}).transform((data) => {
+  const dynamic_database_url = data.DATABASE_URL || `postgresql://${data.POSTGRES_USER}:${data.POSTGRES_PASSWORD}@${data.POSTGRES_HOST}:${data.POSTGRES_PORT}/${data.POSTGRES_DB}`;
+  return {
+    ...data,
+    DATABASE_URL: dynamic_database_url,
+  };
 });
 
 const parsed = env_schema.safeParse(process.env);
@@ -34,6 +44,8 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+process.env.DATABASE_URL = env.DATABASE_URL;
 
 if (env.LANGSMITH_TRACING === 'true') {
   process.env.LANGCHAIN_TRACING_V2 = 'true';
