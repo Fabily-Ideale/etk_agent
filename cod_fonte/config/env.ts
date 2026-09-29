@@ -27,7 +27,8 @@ const env_schema = z.object({
   RATE_LIMIT_PHONE_WINDOW_MS: z.coerce.number().default(60000),
   LOG_DIR: z.string().default('./logs'),
   LOG_MAX_LINES: z.coerce.number().default(10000),
-  LOG_MAX_FILES: z.coerce.number().default(1)
+  LOG_MAX_FILES: z.coerce.number().default(1),
+  QUEUE_DEBOUNCE_MS: z.coerce.number().default(1500)
 }).transform((data) => {
   const dynamic_database_url = data.DATABASE_URL || `postgresql://${data.POSTGRES_USER}:${data.POSTGRES_PASSWORD}@${data.POSTGRES_HOST}:${data.POSTGRES_PORT}/${data.POSTGRES_DB}`;
   return {

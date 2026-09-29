@@ -1,36 +1,7 @@
 import { Router, Request, Response } from 'express';
-import { env } from '../config/env';
-import { handleUserMessage } from '../rag/agent';
-import { log_error_event } from '../logging/logger';
-import axios from 'axios';
+import { enqueue_conversation_message } from './conversation_queue';
 
 const router = Router();
-
-async function send_chatwoot_message(
-  account_id: number | string,
-  conversation_id: number | string,
-  content: string
-): Promise<void> {
-  if (!env.CHATWOOT_API_TOKEN) {
-    return;
-  }
-
-  const url = `${env.CHATWOOT_BASE_URL}/api/v1/accounts/${account_id}/conversations/${conversation_id}/messages`;
-
-  await axios.post(
-    url,
-    {
-      content,
-      message_type: 'outgoing',
-    },
-    {
-      headers: {
-        api_access_token: env.CHATWOOT_API_TOKEN,
-      },
-      timeout: 10000,
-    }
-  );
-}
 
 async function process_chatwoot_webhook(req: Request, res: Response): Promise<void> {
   const body = req.body;
@@ -74,17 +45,12 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
     ? sender_name.trim()
     : `chatwoot_${conversation_id}`;
 
-  try {
-    const answer = await handleUserMessage(sender_identifier, text);
-    await send_chatwoot_message(account_id, conversation_id, answer);
-  } catch (error) {
-    log_error_event(
-      'CHATWOOT_WEBHOOK_PROCESSING_ERROR',
-      error instanceof Error ? error.message : String(error),
-      error instanceof Error ? error.stack : undefined,
-      { conversation_id, account_id, sender_identifier }
-    );
-  }
+  enqueue_conversation_message({
+    account_id,
+    conversation_id,
+    sender_identifier,
+    text,
+  });
 }
 
 router.get('/', (_req: Request, res: Response): void => {

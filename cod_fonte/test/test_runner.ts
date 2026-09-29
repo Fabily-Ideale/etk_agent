@@ -39,6 +39,10 @@ const suites: suite_definition[] = [
     name: 'Logs e Monitoramento Segregado (Padrao, Erros e Guardrails)',
     file_path: path.join(__dirname, 'test_logging.ts'),
   },
+  {
+    name: 'Fila de Conversas e Agregacao de Mensagens Concorrentes',
+    file_path: path.join(__dirname, 'test_conversation_queue.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {
