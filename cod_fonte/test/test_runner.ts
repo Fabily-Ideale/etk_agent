@@ -16,7 +16,7 @@ interface suite_execution_result {
 
 const suites: suite_definition[] = [
   {
-    name: 'Autenticacao e Seguranca de Tokens',
+    name: 'Seguranca e Comparacao Segura de Tokens',
     file_path: path.join(__dirname, 'test_auth.ts'),
   },
   {
@@ -28,7 +28,7 @@ const suites: suite_definition[] = [
     file_path: path.join(__dirname, 'test_rate_limiter.ts'),
   },
   {
-    name: 'Webhook da Meta (Assinatura e Ingestao de Eventos)',
+    name: 'Webhook do Chatwoot (Ingestao de Eventos de Mensagem)',
     file_path: path.join(__dirname, 'test_webhook.ts'),
   },
   {

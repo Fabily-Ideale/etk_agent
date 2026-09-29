@@ -1,6 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request } from 'express';
 import { timingSafeEqual } from 'crypto';
-import { env } from '../config/env';
 
 export function safe_compare_tokens(provided_token: string, expected_token: string): boolean {
   if (typeof provided_token !== 'string' || typeof expected_token !== 'string') {
@@ -49,38 +48,4 @@ export function extract_token_from_request(req: Request): string | null {
   }
 
   return null;
-}
-
-export function validate_api_key(req: Request, res: Response, next: NextFunction): void {
-  const configured_token = env.VERIFY_TOKEN;
-
-  if (!configured_token) {
-    res.status(500).json({
-      error: 'server_misconfiguration',
-      message: 'Token de verificacao nao configurado no servidor.',
-    });
-    return;
-  }
-
-  const provided_token = extract_token_from_request(req);
-
-  if (!provided_token) {
-    res.status(401).json({
-      error: 'unauthorized',
-      message: 'Token de autorizacao ausente. Forneca via cabecalho x-api-key ou Authorization Bearer.',
-    });
-    return;
-  }
-
-  const is_valid = safe_compare_tokens(provided_token, configured_token);
-
-  if (!is_valid) {
-    res.status(401).json({
-      error: 'unauthorized',
-      message: 'Token de autorizacao invalido.',
-    });
-    return;
-  }
-
-  next();
 }

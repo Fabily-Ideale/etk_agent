@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import { handleUserMessage } from '../rag/agent';
-import { validate_api_key } from '../security/auth';
 import { create_ip_rate_limiter, create_phone_rate_limiter } from '../security/rate_limiter';
 import { env } from '../config/env';
 import { log_error_event } from '../logging/logger';
@@ -19,7 +18,6 @@ const phone_limiter = create_phone_rate_limiter(
 
 router.post(
   '/chat',
-  validate_api_key,
   ip_limiter,
   phone_limiter,
   async (req: Request, res: Response): Promise<void> => {
