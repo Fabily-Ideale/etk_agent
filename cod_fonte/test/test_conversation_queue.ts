@@ -1,6 +1,7 @@
 import {
   enqueue_conversation_message,
   set_message_processor,
+  set_queue_debounce_ms,
   clear_all_queues,
   get_active_queue_count,
 } from '../webhook/conversation_queue';
@@ -19,6 +20,7 @@ function sleep(ms: number): Promise<void> {
 
 async function run_burst_aggregation_test(): Promise<void> {
   clear_all_queues();
+  set_queue_debounce_ms(200);
   const processed_payloads: { account_id: any; conversation_id: any; text: string }[] = [];
 
   set_message_processor(async (account_id, conversation_id, _sender, text) => {
@@ -46,7 +48,7 @@ async function run_burst_aggregation_test(): Promise<void> {
     text: 'Terceira frase',
   });
 
-  await sleep(1800);
+  await sleep(350);
 
   const passed =
     processed_payloads.length === 1 &&
@@ -61,13 +63,59 @@ async function run_burst_aggregation_test(): Promise<void> {
   });
 }
 
+async function run_timer_reset_on_new_message_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(200);
+  const call_timestamps: number[] = [];
+
+  set_message_processor(async () => {
+    call_timestamps.push(Date.now());
+  });
+
+  const start_time = Date.now();
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 105,
+    sender_identifier: 'user_105',
+    text: 'Mensagem inicial',
+  });
+
+  await sleep(120);
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 105,
+    sender_identifier: 'user_105',
+    text: 'Mensagem que reseta temporizador',
+  });
+
+  await sleep(120);
+
+  const was_prematurely_called = call_timestamps.length > 0;
+
+  await sleep(150);
+
+  const total_duration = call_timestamps.length === 1 ? call_timestamps[0] - start_time : 0;
+  const passed = !was_prematurely_called && call_timestamps.length === 1 && total_duration >= 290;
+
+  test_results.push({
+    name: 'Reset do temporizador: chegada de nova mensagem prorroga o debounce',
+    passed,
+    details: passed
+      ? undefined
+      : `Chamado prematuramente: ${was_prematurely_called}, chamadas totais: ${call_timestamps.length}, duracao: ${total_duration}ms`,
+  });
+}
+
 async function run_inter_thinking_arrival_test(): Promise<void> {
   clear_all_queues();
+  set_queue_debounce_ms(200);
   const execution_history: string[] = [];
 
   set_message_processor(async (_account_id, _conversation_id, _sender, text) => {
     execution_history.push(`START:${text}`);
-    await sleep(400);
+    await sleep(200);
     execution_history.push(`FINISH:${text}`);
   });
 
@@ -78,7 +126,7 @@ async function run_inter_thinking_arrival_test(): Promise<void> {
     text: 'Mensagem Inicial',
   });
 
-  await sleep(1600);
+  await sleep(250);
 
   enqueue_conversation_message({
     account_id: 1,
@@ -94,7 +142,7 @@ async function run_inter_thinking_arrival_test(): Promise<void> {
     text: 'Chegou no meio 2',
   });
 
-  await sleep(800);
+  await sleep(600);
 
   const expected_sequence = [
     'START:Mensagem Inicial',
@@ -118,10 +166,11 @@ async function run_inter_thinking_arrival_test(): Promise<void> {
 
 async function run_multi_conversation_isolation_test(): Promise<void> {
   clear_all_queues();
+  set_queue_debounce_ms(200);
   const completed_conversations: (string | number)[] = [];
 
   set_message_processor(async (_account_id, conversation_id, _sender, _text) => {
-    await sleep(200);
+    await sleep(100);
     completed_conversations.push(conversation_id);
   });
 
@@ -139,7 +188,7 @@ async function run_multi_conversation_isolation_test(): Promise<void> {
     text: 'Ola cliente 2',
   });
 
-  await sleep(1900);
+  await sleep(450);
 
   const passed =
     completed_conversations.length === 2 &&
@@ -157,6 +206,7 @@ async function run_multi_conversation_isolation_test(): Promise<void> {
 
 async function run_error_resilience_test(): Promise<void> {
   clear_all_queues();
+  set_queue_debounce_ms(200);
   const successful_calls: string[] = [];
   let should_fail = true;
 
@@ -175,7 +225,7 @@ async function run_error_resilience_test(): Promise<void> {
     text: 'Tentativa que vai falhar',
   });
 
-  await sleep(1600);
+  await sleep(250);
 
   enqueue_conversation_message({
     account_id: 1,
@@ -184,7 +234,7 @@ async function run_error_resilience_test(): Promise<void> {
     text: 'Tentativa que deve recuperar',
   });
 
-  await sleep(1700);
+  await sleep(350);
 
   const passed =
     successful_calls.length === 1 &&
@@ -202,6 +252,7 @@ async function run_error_resilience_test(): Promise<void> {
 
 async function run_memory_cleanup_test(): Promise<void> {
   clear_all_queues();
+  set_queue_debounce_ms(200);
 
   set_message_processor(async () => {
     await sleep(50);
@@ -214,7 +265,7 @@ async function run_memory_cleanup_test(): Promise<void> {
     text: 'Mensagem para teste de limpeza',
   });
 
-  await sleep(1700);
+  await sleep(350);
 
   const active_count = get_active_queue_count();
   const passed = active_count === 0;
@@ -228,6 +279,7 @@ async function run_memory_cleanup_test(): Promise<void> {
 
 async function main(): Promise<void> {
   await run_burst_aggregation_test();
+  await run_timer_reset_on_new_message_test();
   await run_inter_thinking_arrival_test();
   await run_multi_conversation_isolation_test();
   await run_error_resilience_test();
@@ -235,6 +287,7 @@ async function main(): Promise<void> {
 
   clear_all_queues();
   set_message_processor(null);
+  set_queue_debounce_ms(null);
 
   let failed_count = 0;
   for (const res of test_results) {

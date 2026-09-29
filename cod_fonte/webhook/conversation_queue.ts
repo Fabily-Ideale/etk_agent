@@ -66,9 +66,21 @@ async function default_message_processor(
 }
 
 let active_message_processor: message_processor = default_message_processor;
+let custom_debounce_ms: number | null = null;
 
 export function set_message_processor(custom_processor: message_processor | null): void {
   active_message_processor = custom_processor || default_message_processor;
+}
+
+export function set_queue_debounce_ms(override_ms: number | null): void {
+  custom_debounce_ms = override_ms;
+}
+
+function get_effective_debounce_ms(): number {
+  if (custom_debounce_ms !== null) {
+    return custom_debounce_ms > 0 ? custom_debounce_ms : 0;
+  }
+  return env.QUEUE_DEBOUNCE_MS > 0 ? env.QUEUE_DEBOUNCE_MS : 0;
 }
 
 export function get_queue_entry(
@@ -93,6 +105,31 @@ export function clear_all_queues(): void {
   conversation_queues.clear();
 }
 
+function schedule_queue_execution(key: string, delay_ms: number): void {
+  const entry = conversation_queues.get(key);
+  if (!entry) {
+    return;
+  }
+
+  if (entry.debounce_timer) {
+    clearTimeout(entry.debounce_timer);
+    entry.debounce_timer = null;
+  }
+
+  if (delay_ms <= 0) {
+    void process_queue(key);
+    return;
+  }
+
+  entry.debounce_timer = setTimeout(() => {
+    const active_entry = conversation_queues.get(key);
+    if (active_entry) {
+      active_entry.debounce_timer = null;
+      void process_queue(key);
+    }
+  }, delay_ms);
+}
+
 async function process_queue(key: string): Promise<void> {
   const entry = conversation_queues.get(key);
   if (!entry) {
@@ -103,44 +140,50 @@ async function process_queue(key: string): Promise<void> {
     return;
   }
 
+  if (entry.buffered_messages.length === 0) {
+    if (!entry.debounce_timer) {
+      conversation_queues.delete(key);
+    }
+    return;
+  }
+
   entry.is_processing = true;
 
+  const messages_to_process = [...entry.buffered_messages];
+  entry.buffered_messages = [];
+
+  const combined_text = messages_to_process.join('\n');
+
   try {
-    while (entry.buffered_messages.length > 0) {
-      const messages_to_process = [...entry.buffered_messages];
-      entry.buffered_messages = [];
-
-      const combined_text = messages_to_process.join('\n');
-      if (combined_text.trim().length === 0) {
-        continue;
-      }
-
-      try {
-        await active_message_processor(
-          entry.account_id,
-          entry.conversation_id,
-          entry.sender_identifier,
-          combined_text
-        );
-      } catch (error) {
-        log_error_event(
-          'CONVERSATION_QUEUE_PROCESSING_ERROR',
-          error instanceof Error ? error.message : String(error),
-          error instanceof Error ? error.stack : undefined,
-          {
-            conversation_key: key,
-            account_id: entry.account_id,
-            conversation_id: entry.conversation_id,
-            sender_identifier: entry.sender_identifier,
-            message_count: messages_to_process.length,
-          }
-        );
-      }
+    if (combined_text.trim().length > 0) {
+      await active_message_processor(
+        entry.account_id,
+        entry.conversation_id,
+        entry.sender_identifier,
+        combined_text
+      );
     }
+  } catch (error) {
+    log_error_event(
+      'CONVERSATION_QUEUE_PROCESSING_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      {
+        conversation_key: key,
+        account_id: entry.account_id,
+        conversation_id: entry.conversation_id,
+        sender_identifier: entry.sender_identifier,
+        message_count: messages_to_process.length,
+      }
+    );
   } finally {
     entry.is_processing = false;
+
     if (entry.buffered_messages.length > 0) {
-      void process_queue(key);
+      const delay_ms = get_effective_debounce_ms();
+      const elapsed_since_last_message = Date.now() - entry.last_activity_timestamp;
+      const remaining_delay = Math.max(0, delay_ms - elapsed_since_last_message);
+      schedule_queue_execution(key, remaining_delay);
     } else if (!entry.debounce_timer) {
       conversation_queues.delete(key);
     }
@@ -172,22 +215,6 @@ export function enqueue_conversation_message(payload: conversation_message_paylo
     return;
   }
 
-  if (entry.debounce_timer) {
-    clearTimeout(entry.debounce_timer);
-  }
-
-  const delay_ms = env.QUEUE_DEBOUNCE_MS > 0 ? env.QUEUE_DEBOUNCE_MS : 0;
-
-  if (delay_ms === 0) {
-    void process_queue(key);
-    return;
-  }
-
-  entry.debounce_timer = setTimeout(() => {
-    const active_entry = conversation_queues.get(key);
-    if (active_entry) {
-      active_entry.debounce_timer = null;
-      void process_queue(key);
-    }
-  }, delay_ms);
+  const delay_ms = get_effective_debounce_ms();
+  schedule_queue_execution(key, delay_ms);
 }
