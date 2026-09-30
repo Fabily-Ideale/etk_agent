@@ -1,6 +1,7 @@
 import {
   enqueue_conversation_message,
   set_message_processor,
+  set_typing_status_sender,
   set_queue_debounce_ms,
   clear_all_queues,
   get_active_queue_count,
@@ -17,6 +18,8 @@ const test_results: test_case_result[] = [];
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+set_typing_status_sender(async () => {});
 
 async function run_burst_aggregation_test(): Promise<void> {
   clear_all_queues();
@@ -277,6 +280,119 @@ async function run_memory_cleanup_test(): Promise<void> {
   });
 }
 
+async function run_typing_indicator_lifecycle_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(150);
+  const events_sequence: string[] = [];
+
+  set_typing_status_sender(async (account_id, conversation_id, status) => {
+    events_sequence.push(`TYPING_${status}:${account_id}_${conversation_id}`);
+  });
+
+  set_message_processor(async (_account_id, _conversation_id, _sender, text) => {
+    events_sequence.push(`PROCESS:${text}`);
+    await sleep(50);
+  });
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 501,
+    sender_identifier: 'user_501',
+    text: 'Mensagem para teste de digitando',
+  });
+
+  await sleep(300);
+
+  const expected_sequence = [
+    'TYPING_on:1_501',
+    'PROCESS:Mensagem para teste de digitando',
+    'TYPING_off:1_501',
+  ];
+
+  const passed =
+    events_sequence.length === expected_sequence.length &&
+    events_sequence.every((val, idx) => val === expected_sequence[idx]);
+
+  test_results.push({
+    name: 'Ciclo de vida do indicador: aciona on antes do processamento e off apos finalizar',
+    passed,
+    details: passed
+      ? undefined
+      : `Sequencia incorreta: ${JSON.stringify(events_sequence)} vs esperada: ${JSON.stringify(expected_sequence)}`,
+  });
+}
+
+async function run_typing_indicator_error_cleanup_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(150);
+  const events_sequence: string[] = [];
+
+  set_typing_status_sender(async (_account_id, _conversation_id, status) => {
+    events_sequence.push(`TYPING_${status}`);
+  });
+
+  set_message_processor(async () => {
+    events_sequence.push('PROCESS_FAIL');
+    throw new Error('Falha no modelo LLM');
+  });
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 502,
+    sender_identifier: 'user_502',
+    text: 'Mensagem com falha',
+  });
+
+  await sleep(300);
+
+  const expected_sequence = ['TYPING_on', 'PROCESS_FAIL', 'TYPING_off'];
+
+  const passed =
+    events_sequence.length === expected_sequence.length &&
+    events_sequence.every((val, idx) => val === expected_sequence[idx]);
+
+  test_results.push({
+    name: 'Garantia de desligamento do indicador: status off emitido mesmo se houver excecao',
+    passed,
+    details: passed
+      ? undefined
+      : `Sequencia incorreta: ${JSON.stringify(events_sequence)} vs esperada: ${JSON.stringify(expected_sequence)}`,
+  });
+}
+
+async function run_typing_indicator_failure_resilience_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(150);
+  let processor_executed = false;
+
+  set_typing_status_sender(async () => {
+    throw new Error('Chatwoot endpoint toggle_typing indisponivel');
+  });
+
+  set_message_processor(async () => {
+    processor_executed = true;
+  });
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 503,
+    sender_identifier: 'user_503',
+    text: 'Mensagem com endpoint de typing falhando',
+  });
+
+  await sleep(300);
+
+  const passed = processor_executed && get_active_queue_count() === 0;
+
+  test_results.push({
+    name: 'Resiliencia de falha de typing: falha na API de status nao bloqueia a resposta do agente',
+    passed,
+    details: passed
+      ? undefined
+      : `Processador executado: ${processor_executed}, filas ativas: ${get_active_queue_count()}`,
+  });
+}
+
 async function main(): Promise<void> {
   await run_burst_aggregation_test();
   await run_timer_reset_on_new_message_test();
@@ -284,9 +400,13 @@ async function main(): Promise<void> {
   await run_multi_conversation_isolation_test();
   await run_error_resilience_test();
   await run_memory_cleanup_test();
+  await run_typing_indicator_lifecycle_test();
+  await run_typing_indicator_error_cleanup_test();
+  await run_typing_indicator_failure_resilience_test();
 
   clear_all_queues();
   set_message_processor(null);
+  set_typing_status_sender(null);
   set_queue_debounce_ms(null);
 
   let failed_count = 0;

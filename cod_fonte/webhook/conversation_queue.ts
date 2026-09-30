@@ -65,11 +65,51 @@ async function default_message_processor(
   await default_send_chatwoot_message(account_id, conversation_id, answer);
 }
 
+export type typing_status_sender = (
+  account_id: number | string,
+  conversation_id: number | string,
+  status: 'on' | 'off'
+) => Promise<void>;
+
+async function default_send_chatwoot_typing_status(
+  account_id: number | string,
+  conversation_id: number | string,
+  status: 'on' | 'off'
+): Promise<void> {
+  if (!env.CHATWOOT_API_TOKEN) {
+    return;
+  }
+
+  const url = `${env.CHATWOOT_BASE_URL}/api/v1/accounts/${account_id}/conversations/${conversation_id}/toggle_typing_status`;
+
+  try {
+    await axios.post(
+      url,
+      {
+        typing_status: status,
+      },
+      {
+        headers: {
+          api_access_token: env.CHATWOOT_API_TOKEN,
+        },
+        timeout: 4000,
+      }
+    );
+  } catch {
+    return;
+  }
+}
+
 let active_message_processor: message_processor = default_message_processor;
+let active_typing_sender: typing_status_sender = default_send_chatwoot_typing_status;
 let custom_debounce_ms: number | null = null;
 
 export function set_message_processor(custom_processor: message_processor | null): void {
   active_message_processor = custom_processor || default_message_processor;
+}
+
+export function set_typing_status_sender(custom_sender: typing_status_sender | null): void {
+  active_typing_sender = custom_sender || default_send_chatwoot_typing_status;
 }
 
 export function set_queue_debounce_ms(override_ms: number | null): void {
@@ -156,6 +196,11 @@ async function process_queue(key: string): Promise<void> {
 
   try {
     if (combined_text.trim().length > 0) {
+      try {
+        await active_typing_sender(entry.account_id, entry.conversation_id, 'on');
+      } catch {
+      }
+
       await active_message_processor(
         entry.account_id,
         entry.conversation_id,
@@ -177,6 +222,13 @@ async function process_queue(key: string): Promise<void> {
       }
     );
   } finally {
+    if (combined_text.trim().length > 0) {
+      try {
+        await active_typing_sender(entry.account_id, entry.conversation_id, 'off');
+      } catch {
+      }
+    }
+
     entry.is_processing = false;
 
     if (entry.buffered_messages.length > 0) {
