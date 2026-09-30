@@ -18,6 +18,7 @@
     "test:api": "ts-node cod_fonte/test/test_api_chat.ts",
     "test:logging": "ts-node cod_fonte/test/test_logging.ts",
     "test:queue": "ts-node cod_fonte/test/test_conversation_queue.ts",
+    "test:handoff": "ts-node cod_fonte/test/test_handoff.ts",
     "test": "ts-node cod_fonte/test/test_runner.ts"
   },
   "prisma": {

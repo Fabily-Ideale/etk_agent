@@ -39,6 +39,10 @@ const suites: suite_definition[] = [
     name: 'Fila de Conversas e Rate Limiting no Fluxo WhatsApp',
     file_path: path.join(__dirname, 'test_conversation_queue.ts'),
   },
+  {
+    name: 'Interrupcao e Handoff para Atendimento Humano (Chatwoot)',
+    file_path: path.join(__dirname, 'test_handoff.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {
