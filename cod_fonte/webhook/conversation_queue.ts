@@ -3,6 +3,7 @@ import { env } from '../config/env';
 import { handleUserMessage } from '../rag/agent';
 import { log_error_event } from '../logging/logger';
 import { memory_rate_limiter } from '../security/rate_limiter';
+import { is_conversation_in_human_handoff } from './chatwoot_client';
 
 export interface conversation_message_payload {
   account_id: number | string;
@@ -79,7 +80,10 @@ async function default_message_processor(
   sender_identifier: string,
   text: string
 ): Promise<void> {
-  const answer = await handleUserMessage(sender_identifier, text);
+  const answer = await handleUserMessage(sender_identifier, text, {
+    account_id,
+    conversation_id,
+  });
   await active_message_sender(account_id, conversation_id, answer);
 }
 
@@ -220,6 +224,12 @@ async function process_queue(key: string): Promise<void> {
     return;
   }
 
+  if (is_conversation_in_human_handoff(entry.account_id, entry.conversation_id)) {
+    entry.buffered_messages = [];
+    conversation_queues.delete(key);
+    return;
+  }
+
   if (entry.buffered_messages.length === 0) {
     if (!entry.debounce_timer) {
       conversation_queues.delete(key);
@@ -306,6 +316,10 @@ async function process_queue(key: string): Promise<void> {
 }
 
 export function enqueue_conversation_message(payload: conversation_message_payload): void {
+  if (is_conversation_in_human_handoff(payload.account_id, payload.conversation_id)) {
+    return;
+  }
+
   const key = `${payload.account_id}_${payload.conversation_id}`;
   let entry = conversation_queues.get(key);
 

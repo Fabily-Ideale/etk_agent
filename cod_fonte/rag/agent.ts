@@ -2,13 +2,21 @@ import { HumanMessage, SystemMessage, AIMessage, ToolMessage, BaseMessage } from
 import { traceable } from 'langsmith/traceable';
 import { llm } from '../config/llm';
 import { prisma } from '../config/prisma';
-import { agent_tools, services_tool, knowledge_tool } from './tools';
+import { agent_tools, services_tool, knowledge_tool, handoff_tool } from './tools';
+import { set_current_handoff_context } from './tools/handoff_tool';
+import { execute_chatwoot_handoff } from '../webhook/chatwoot_client';
 import { validate_security_guardrails } from '../security/guardrails';
 import { log_standard_event, log_error_event, log_guardrail_violation_event } from '../logging/logger';
+
+export interface conversation_context {
+  account_id?: number | string;
+  conversation_id?: number | string;
+}
 
 const tools_map: Record<string, (args: any) => Promise<any>> = {
   [services_tool.name]: (args: any) => services_tool.invoke(args),
   [knowledge_tool.name]: (args: any) => knowledge_tool.invoke(args),
+  [handoff_tool.name]: (args: any) => handoff_tool.invoke(args),
 };
 
 const llm_with_tools = llm.bindTools(agent_tools);
@@ -34,6 +42,11 @@ ESTRUTURA DE RESPOSTA E CONVERSÃO:
 2. Proposta de Valor: Explique de maneira breve e segura o diferencial ou o que está incluso no serviço.
 3. Direcionamento Técnico: Conclua sempre com uma pergunta de próximo passo, convidando o cliente a ser transferido para um de nossos técnicos especializados para formalizar o atendimento ou avaliar os detalhes do equipamento.
 
+DIRETRIZES DE TRANSFERÊNCIA PARA ATENDIMENTO HUMANO:
+1. Quando o cliente solicitar atendimento humano, falar com atendente, falar com técnico, ou quando responder afirmativamente à sua oferta de transferência (ex: 'sim', 'pode transferir', 'quero falar com alguém', 'por favor'), você DEVE OBRIGATORIAMENTE acionar a ferramenta transferir_atendimento_humano.
+2. É ESTRITAMENTE PROIBIDO responder que transferiu ou que vai transferir sem acionar a ferramenta transferir_atendimento_humano.
+3. Se a solicitação do cliente estiver fora dos serviços atendidos ou necessitar de negociação personalizada de valores, acione a ferramenta transferir_atendimento_humano.
+
 DIRETRIZES PARA CONSULTA DE CATÁLOGO E SERVIÇOS:
 1. Para serviços, preços, manutenções, formatações, suporte, desenvolvimento ou redes, consulte a ferramenta consultar_servicos.
 2. Sob hipótese alguma despeje o catálogo completo na conversa. Se o cliente insistir em ver tudo ou todos os preços, apresente as categorias disponíveis para que ele escolha uma, ou mostre apenas os serviços de uma categoria específica solicitada. Nunca liste itens de categorias diferentes em uma mesma resposta volumosa.
@@ -41,50 +54,73 @@ DIRETRIZES PARA CONSULTA DE CATÁLOGO E SERVIÇOS:
 4. Para saudações simples ou diálogos sociais básicos, responda cordialmente em 1 ou 2 frases sem acionar ferramentas, perguntando como pode ajudar.
 5. Baseie valores e serviços estritamente nas ferramentas. Não invente preços ou serviços.`;
 
+interface agent_loop_result {
+  answer: string;
+  handoff_executed: boolean;
+}
+
 const execute_agent_loop = traceable(
-  async (conversation_messages: BaseMessage[]): Promise<string> => {
+  async (
+    conversation_messages: BaseMessage[],
+    context?: conversation_context
+  ): Promise<agent_loop_result> => {
     let current_iteration = 0;
     const max_iterations = 5;
+    let handoff_executed = false;
 
-    while (current_iteration < max_iterations) {
-      current_iteration++;
+    set_current_handoff_context(context || null);
 
-      const response = await llm_with_tools.invoke(conversation_messages);
-      conversation_messages.push(response);
+    try {
+      while (current_iteration < max_iterations) {
+        current_iteration++;
 
-      const tool_calls = response.tool_calls;
-      if (!tool_calls || tool_calls.length === 0) {
-        return typeof response.content === 'string'
-          ? response.content
-          : JSON.stringify(response.content);
-      }
+        const response = await llm_with_tools.invoke(conversation_messages);
+        conversation_messages.push(response);
 
-      for (const call of tool_calls) {
-        const executor = tools_map[call.name];
-        let tool_output: string;
-
-        if (executor) {
-          try {
-            const raw_result = await executor(call.args);
-            tool_output = typeof raw_result === 'string' ? raw_result : JSON.stringify(raw_result);
-          } catch (exec_error) {
-            tool_output = `Erro ao executar a ferramenta ${call.name}: ${String(exec_error)}`;
-          }
-        } else {
-          tool_output = `Ferramenta ${call.name} nao encontrada.`;
+        const tool_calls = response.tool_calls;
+        if (!tool_calls || tool_calls.length === 0) {
+          const final_content = typeof response.content === 'string'
+            ? response.content
+            : JSON.stringify(response.content);
+          return { answer: final_content, handoff_executed };
         }
 
-        conversation_messages.push(
-          new ToolMessage({
-            tool_call_id: call.id ?? '',
-            content: tool_output,
-            name: call.name,
-          })
-        );
-      }
-    }
+        for (const call of tool_calls) {
+          const executor = tools_map[call.name];
+          let tool_output: string;
 
-    return 'Nao foi possivel concluir o processamento dentro do limite de etapas.';
+          if (call.name === handoff_tool.name) {
+            handoff_executed = true;
+          }
+
+          if (executor) {
+            try {
+              const raw_result = await executor(call.args);
+              tool_output = typeof raw_result === 'string' ? raw_result : JSON.stringify(raw_result);
+            } catch (exec_error) {
+              tool_output = `Erro ao executar a ferramenta ${call.name}: ${String(exec_error)}`;
+            }
+          } else {
+            tool_output = `Ferramenta ${call.name} nao encontrada.`;
+          }
+
+          conversation_messages.push(
+            new ToolMessage({
+              tool_call_id: call.id ?? '',
+              content: tool_output,
+              name: call.name,
+            })
+          );
+        }
+      }
+
+      return {
+        answer: 'Nao foi possivel concluir o processamento dentro do limite de etapas.',
+        handoff_executed,
+      };
+    } finally {
+      set_current_handoff_context(null);
+    }
   },
   {
     name: 'agent_execution_loop',
@@ -94,7 +130,7 @@ const execute_agent_loop = traceable(
 );
 
 export const handle_user_message = traceable(
-  async (phone_number: string, text: string): Promise<string> => {
+  async (phone_number: string, text: string, context?: conversation_context): Promise<string> => {
     const start_time = Date.now();
     log_standard_event(phone_number, 'request_received');
 
@@ -162,7 +198,38 @@ export const handle_user_message = traceable(
     }
 
     try {
-      const final_answer = await execute_agent_loop(conversation_messages);
+      const loop_result = await execute_agent_loop(conversation_messages, context);
+      const final_answer = loop_result.answer;
+
+      if (context?.account_id && context?.conversation_id && !loop_result.handoff_executed) {
+        const normalized_text = text.toLowerCase();
+        const normalized_answer = final_answer.toLowerCase();
+        const user_wants_human =
+          normalized_text.includes('atendente') ||
+          normalized_text.includes('humano') ||
+          normalized_text.includes('tecnico') ||
+          normalized_text.includes('técnico') ||
+          normalized_text.includes('especialista') ||
+          normalized_text.includes('transferir') ||
+          normalized_text === 'sim' ||
+          normalized_text === 'pode ser' ||
+          normalized_text === 'quero';
+
+        const answer_mentions_transfer =
+          normalized_answer.includes('transferi') ||
+          normalized_answer.includes('transferindo') ||
+          normalized_answer.includes('atendente humano') ||
+          normalized_answer.includes('técnico especializado') ||
+          normalized_answer.includes('tecnico especializado');
+
+        if (user_wants_human || answer_mentions_transfer) {
+          await execute_chatwoot_handoff({
+            account_id: context.account_id,
+            conversation_id: context.conversation_id,
+            reason: user_wants_human ? 'solicitacao_cliente' : 'declaracao_agente',
+          });
+        }
+      }
 
       await prisma.message.create({
         data: {
@@ -187,6 +254,7 @@ export const handle_user_message = traceable(
     processInputs: (inputs: any) => ({
       phone_number: inputs.args ? inputs.args[0] : inputs.phone_number,
       user_message: inputs.args ? inputs.args[1] : inputs.text,
+      context: inputs.args ? inputs.args[2] : inputs.context,
     }),
     processOutputs: (output: any) => ({
       response: typeof output === 'object' && output.outputs !== undefined ? output.outputs : output,

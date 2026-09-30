@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { enqueue_conversation_message } from './conversation_queue';
+import { is_conversation_in_human_handoff, resume_conversation_bot } from './chatwoot_client';
 
 const router = Router();
 
@@ -34,6 +35,21 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
   const account_id = body.account?.id;
 
   if (!conversation_id || !account_id) {
+    return;
+  }
+
+  const conversation_status = body.conversation?.status;
+  const assignee_id = body.conversation?.assignee_id ?? body.conversation?.assignee?.id;
+
+  if (conversation_status === 'pending' || conversation_status === 'bot') {
+    resume_conversation_bot(account_id, conversation_id);
+  }
+
+  const is_open = conversation_status === 'open';
+  const has_human_assignee = (assignee_id !== undefined && assignee_id !== null && assignee_id !== 0) || Boolean(body.conversation?.assignee);
+  const is_session_handed_off = is_conversation_in_human_handoff(account_id, conversation_id);
+
+  if (is_open || has_human_assignee || is_session_handed_off) {
     return;
   }
 

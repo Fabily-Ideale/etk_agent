@@ -17,6 +17,8 @@ const env_schema = z.object({
   NVIDIA_NIM_EMBEDDING_MODEL: z.string().default('nvidia/nv-embedqa-e5-v5'),
   CHATWOOT_BASE_URL: z.string().default('http://chatwoot:3000'),
   CHATWOOT_API_TOKEN: z.string().optional(),
+  CHATWOOT_ASSIGNEE_ID: z.coerce.number().optional(),
+  CHATWOOT_TEAM_ID: z.coerce.number().optional(),
   LANGSMITH_TRACING: z.string().default('false'),
   LANGSMITH_API_KEY: z.string().optional(),
   LANGSMITH_PROJECT: z.string().default('default'),

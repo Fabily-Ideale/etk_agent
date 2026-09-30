@@ -1,6 +1,7 @@
 import { services_tool } from './services_tool';
 import { knowledge_tool } from './knowledge_tool';
+import { handoff_tool } from './handoff_tool';
 
-export const agent_tools = [services_tool, knowledge_tool];
+export const agent_tools = [services_tool, knowledge_tool, handoff_tool];
 
-export { services_tool, knowledge_tool };
+export { services_tool, knowledge_tool, handoff_tool };
