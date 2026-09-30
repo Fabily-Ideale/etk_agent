@@ -24,7 +24,7 @@ const suites: suite_definition[] = [
     file_path: path.join(__dirname, 'test_guardrails.ts'),
   },
   {
-    name: 'Rate Limiting (IP e Telefone)',
+    name: 'Rate Limiting (Motor de Memoria e Validacao de Cotas)',
     file_path: path.join(__dirname, 'test_rate_limiter.ts'),
   },
   {
@@ -32,15 +32,11 @@ const suites: suite_definition[] = [
     file_path: path.join(__dirname, 'test_webhook.ts'),
   },
   {
-    name: 'API Chat Direta (Validacao de Requisicoes HTTP / Postman)',
-    file_path: path.join(__dirname, 'test_api_chat.ts'),
-  },
-  {
     name: 'Logs e Monitoramento Segregado (Padrao, Erros e Guardrails)',
     file_path: path.join(__dirname, 'test_logging.ts'),
   },
   {
-    name: 'Fila de Conversas e Agregacao de Mensagens Concorrentes',
+    name: 'Fila de Conversas e Rate Limiting no Fluxo WhatsApp',
     file_path: path.join(__dirname, 'test_conversation_queue.ts'),
   },
 ];

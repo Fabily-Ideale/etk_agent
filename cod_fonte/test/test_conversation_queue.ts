@@ -2,10 +2,15 @@ import {
   enqueue_conversation_message,
   set_message_processor,
   set_typing_status_sender,
+  set_chatwoot_message_sender,
+  set_queue_rate_limiter,
+  set_queue_rate_limit_policy,
   set_queue_debounce_ms,
   clear_all_queues,
   get_active_queue_count,
+  get_queue_entry,
 } from '../webhook/conversation_queue';
+import { memory_rate_limiter } from '../security/rate_limiter';
 
 interface test_case_result {
   name: string;
@@ -393,6 +398,144 @@ async function run_typing_indicator_failure_resilience_test(): Promise<void> {
   });
 }
 
+async function run_queue_rate_limiting_enforcement_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(50);
+  const limiter = new memory_rate_limiter();
+  set_queue_rate_limiter(limiter);
+  set_queue_rate_limit_policy(2, 5000);
+
+  const processed_calls: string[] = [];
+  const captured_outbox: { account_id: any; conversation_id: any; content: string }[] = [];
+
+  set_message_processor(async (_acc, _conv, _sender, text) => {
+    processed_calls.push(text);
+  });
+
+  set_chatwoot_message_sender(async (account_id, conversation_id, content) => {
+    captured_outbox.push({ account_id, conversation_id, content });
+  });
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 201,
+    sender_identifier: '5511999990001',
+    text: 'Primeira solicitacao',
+  });
+  await sleep(100);
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 201,
+    sender_identifier: '5511999990001',
+    text: 'Segunda solicitacao',
+  });
+  await sleep(100);
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 201,
+    sender_identifier: '5511999990001',
+    text: 'Terceira solicitacao excedente',
+  });
+  await sleep(100);
+
+  const passed =
+    processed_calls.length === 2 &&
+    captured_outbox.length === 1 &&
+    captured_outbox[0].content.includes('Limite de mensagens atingido');
+
+  test_results.push({
+    name: 'Rate limiting na fila: terceira solicitacao do mesmo remetente bloqueada com aviso ao usuario',
+    passed,
+    details: passed
+      ? undefined
+      : `Chamadas processadas: ${processed_calls.length}, mensagens enviadas: ${captured_outbox.length}`,
+  });
+}
+
+async function run_queue_rate_limiting_different_senders_isolation_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(50);
+  const limiter = new memory_rate_limiter();
+  set_queue_rate_limiter(limiter);
+  set_queue_rate_limit_policy(1, 5000);
+
+  const processed_senders: string[] = [];
+  const captured_outbox: string[] = [];
+
+  set_message_processor(async (_acc, _conv, sender, _text) => {
+    processed_senders.push(sender);
+  });
+
+  set_chatwoot_message_sender(async (_acc, _conv, content) => {
+    captured_outbox.push(content);
+  });
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 301,
+    sender_identifier: '5511999990001',
+    text: 'Pergunta remetente A',
+  });
+  await sleep(100);
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 301,
+    sender_identifier: '5511999990001',
+    text: 'Segunda pergunta remetente A',
+  });
+  await sleep(100);
+
+  enqueue_conversation_message({
+    account_id: 1,
+    conversation_id: 302,
+    sender_identifier: '5511888880002',
+    text: 'Pergunta remetente B',
+  });
+  await sleep(100);
+
+  const passed =
+    processed_senders.length === 2 &&
+    processed_senders[0] === '5511999990001' &&
+    processed_senders[1] === '5511888880002' &&
+    captured_outbox.length === 1;
+
+  test_results.push({
+    name: 'Isolamento de cotas na fila: bloqueio do remetente A nao afeta o remetente B',
+    passed,
+    details: passed
+      ? undefined
+      : `Processados: ${JSON.stringify(processed_senders)}, avisos enviados: ${captured_outbox.length}`,
+  });
+}
+
+async function run_buffer_overflow_capping_test(): Promise<void> {
+  clear_all_queues();
+  set_queue_debounce_ms(500);
+
+  for (let i = 1; i <= 25; i++) {
+    enqueue_conversation_message({
+      account_id: 1,
+      conversation_id: 401,
+      sender_identifier: '5511777770003',
+      text: `Mensagem ${i}`,
+    });
+  }
+
+  const entry = get_queue_entry(1, 401);
+  const passed = entry !== undefined && entry.buffered_messages.length === 20;
+
+  clear_all_queues();
+
+  test_results.push({
+    name: 'Protecao contra estouro de buffer: loteamento limita maximo de mensagens acumuladas a 20',
+    passed,
+    details: passed ? undefined : `Tamanho do buffer obtido: ${entry?.buffered_messages.length}`,
+  });
+}
+
 async function main(): Promise<void> {
   await run_burst_aggregation_test();
   await run_timer_reset_on_new_message_test();
@@ -403,10 +546,16 @@ async function main(): Promise<void> {
   await run_typing_indicator_lifecycle_test();
   await run_typing_indicator_error_cleanup_test();
   await run_typing_indicator_failure_resilience_test();
+  await run_queue_rate_limiting_enforcement_test();
+  await run_queue_rate_limiting_different_senders_isolation_test();
+  await run_buffer_overflow_capping_test();
 
   clear_all_queues();
   set_message_processor(null);
   set_typing_status_sender(null);
+  set_chatwoot_message_sender(null);
+  set_queue_rate_limiter(null);
+  set_queue_rate_limit_policy(null, null);
   set_queue_debounce_ms(null);
 
   let failed_count = 0;

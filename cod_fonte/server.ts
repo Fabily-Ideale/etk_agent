@@ -1,8 +1,7 @@
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { env } from './config/env';
-import apiRoutes from './routes/api';
-import webhookRoutes from './webhook/controller';
+import webhook_routes from './webhook/controller';
 
 const app = express();
 
@@ -10,9 +9,14 @@ app.set('trust proxy', true);
 app.use(cors());
 app.use(express.json());
 
-app.use('/api', apiRoutes);
-app.use('/webhook', webhookRoutes);
+app.get('/health', (_req: Request, res: Response): void => {
+  res.status(200).json({ status: 'ok', service: 'etk_agent' });
+});
+
+app.use('/webhook', webhook_routes);
 
 app.listen(env.PORT, () => {
   console.log(`Servidor rodando na porta ${env.PORT}`);
 });
+
+export default app;

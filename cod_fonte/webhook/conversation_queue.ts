@@ -2,6 +2,7 @@ import axios from 'axios';
 import { env } from '../config/env';
 import { handleUserMessage } from '../rag/agent';
 import { log_error_event } from '../logging/logger';
+import { memory_rate_limiter } from '../security/rate_limiter';
 
 export interface conversation_message_payload {
   account_id: number | string;
@@ -27,7 +28,22 @@ export type message_processor = (
   text: string
 ) => Promise<void>;
 
+export type typing_status_sender = (
+  account_id: number | string,
+  conversation_id: number | string,
+  status: 'on' | 'off'
+) => Promise<void>;
+
+export type chatwoot_message_sender = (
+  account_id: number | string,
+  conversation_id: number | string,
+  content: string
+) => Promise<void>;
+
+const max_buffered_messages_per_conversation = 20;
 const conversation_queues = new Map<string, conversation_queue_entry>();
+const default_rate_limiter = new memory_rate_limiter();
+let active_rate_limiter: memory_rate_limiter = default_rate_limiter;
 
 async function default_send_chatwoot_message(
   account_id: number | string,
@@ -55,6 +71,8 @@ async function default_send_chatwoot_message(
   );
 }
 
+let active_message_sender: chatwoot_message_sender = default_send_chatwoot_message;
+
 async function default_message_processor(
   account_id: number | string,
   conversation_id: number | string,
@@ -62,14 +80,8 @@ async function default_message_processor(
   text: string
 ): Promise<void> {
   const answer = await handleUserMessage(sender_identifier, text);
-  await default_send_chatwoot_message(account_id, conversation_id, answer);
+  await active_message_sender(account_id, conversation_id, answer);
 }
-
-export type typing_status_sender = (
-  account_id: number | string,
-  conversation_id: number | string,
-  status: 'on' | 'off'
-) => Promise<void>;
 
 async function default_send_chatwoot_typing_status(
   account_id: number | string,
@@ -103,6 +115,8 @@ async function default_send_chatwoot_typing_status(
 let active_message_processor: message_processor = default_message_processor;
 let active_typing_sender: typing_status_sender = default_send_chatwoot_typing_status;
 let custom_debounce_ms: number | null = null;
+let custom_rate_limit_max: number | null = null;
+let custom_rate_limit_window_ms: number | null = null;
 
 export function set_message_processor(custom_processor: message_processor | null): void {
   active_message_processor = custom_processor || default_message_processor;
@@ -110,6 +124,19 @@ export function set_message_processor(custom_processor: message_processor | null
 
 export function set_typing_status_sender(custom_sender: typing_status_sender | null): void {
   active_typing_sender = custom_sender || default_send_chatwoot_typing_status;
+}
+
+export function set_chatwoot_message_sender(custom_sender: chatwoot_message_sender | null): void {
+  active_message_sender = custom_sender || default_send_chatwoot_message;
+}
+
+export function set_queue_rate_limiter(custom_limiter: memory_rate_limiter | null): void {
+  active_rate_limiter = custom_limiter || default_rate_limiter;
+}
+
+export function set_queue_rate_limit_policy(max_requests: number | null, window_ms: number | null): void {
+  custom_rate_limit_max = max_requests;
+  custom_rate_limit_window_ms = window_ms;
 }
 
 export function set_queue_debounce_ms(override_ms: number | null): void {
@@ -121,6 +148,18 @@ function get_effective_debounce_ms(): number {
     return custom_debounce_ms > 0 ? custom_debounce_ms : 0;
   }
   return env.QUEUE_DEBOUNCE_MS > 0 ? env.QUEUE_DEBOUNCE_MS : 0;
+}
+
+function get_effective_rate_limit_policy(): { max_requests: number; window_ms: number } {
+  const max_requests = custom_rate_limit_max !== null && custom_rate_limit_max > 0
+    ? custom_rate_limit_max
+    : (env.RATE_LIMIT_PHONE_MAX_REQUESTS > 0 ? env.RATE_LIMIT_PHONE_MAX_REQUESTS : 10);
+
+  const window_ms = custom_rate_limit_window_ms !== null && custom_rate_limit_window_ms > 0
+    ? custom_rate_limit_window_ms
+    : (env.RATE_LIMIT_PHONE_WINDOW_MS > 0 ? env.RATE_LIMIT_PHONE_WINDOW_MS : 60000);
+
+  return { max_requests, window_ms };
 }
 
 export function get_queue_entry(
@@ -143,6 +182,7 @@ export function clear_all_queues(): void {
     }
   }
   conversation_queues.clear();
+  active_rate_limiter.reset();
 }
 
 function schedule_queue_execution(key: string, delay_ms: number): void {
@@ -196,17 +236,47 @@ async function process_queue(key: string): Promise<void> {
 
   try {
     if (combined_text.trim().length > 0) {
+      const sanitized_identifier = entry.sender_identifier.replace(/\D/g, '');
+      const rate_limit_key = `phone:${sanitized_identifier.length > 0 ? sanitized_identifier : entry.sender_identifier.trim()}`;
+      const policy = get_effective_rate_limit_policy();
+      const rate_result = active_rate_limiter.consume(rate_limit_key, policy.max_requests, policy.window_ms);
+
+      if (!rate_result.allowed) {
+        log_error_event(
+          'CONVERSATION_QUEUE_RATE_LIMIT_EXCEEDED',
+          `Limite de mensagens excedido para o remetente ${entry.sender_identifier}`,
+          undefined,
+          {
+            account_id: entry.account_id,
+            conversation_id: entry.conversation_id,
+            sender_identifier: entry.sender_identifier,
+            retry_after_seconds: rate_result.retry_after_seconds,
+          }
+        );
+
+        const rate_limit_message = 'Limite de mensagens atingido. Por favor, aguarde alguns instantes antes de enviar novas mensagens.';
+        await active_message_sender(entry.account_id, entry.conversation_id, rate_limit_message);
+        return;
+      }
+
       try {
         await active_typing_sender(entry.account_id, entry.conversation_id, 'on');
       } catch {
       }
 
-      await active_message_processor(
-        entry.account_id,
-        entry.conversation_id,
-        entry.sender_identifier,
-        combined_text
-      );
+      try {
+        await active_message_processor(
+          entry.account_id,
+          entry.conversation_id,
+          entry.sender_identifier,
+          combined_text
+        );
+      } finally {
+        try {
+          await active_typing_sender(entry.account_id, entry.conversation_id, 'off');
+        } catch {
+        }
+      }
     }
   } catch (error) {
     log_error_event(
@@ -222,13 +292,6 @@ async function process_queue(key: string): Promise<void> {
       }
     );
   } finally {
-    if (combined_text.trim().length > 0) {
-      try {
-        await active_typing_sender(entry.account_id, entry.conversation_id, 'off');
-      } catch {
-      }
-    }
-
     entry.is_processing = false;
 
     if (entry.buffered_messages.length > 0) {
@@ -259,7 +322,10 @@ export function enqueue_conversation_message(payload: conversation_message_paylo
     conversation_queues.set(key, entry);
   }
 
-  entry.buffered_messages.push(payload.text);
+  if (entry.buffered_messages.length < max_buffered_messages_per_conversation) {
+    entry.buffered_messages.push(payload.text);
+  }
+
   entry.sender_identifier = payload.sender_identifier;
   entry.last_activity_timestamp = Date.now();
 
