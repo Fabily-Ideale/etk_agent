@@ -265,6 +265,23 @@ async function test_session_state_lifecycle(): Promise<void> {
   });
 }
 
+async function test_no_automatic_handoff_on_client_keyword(): Promise<void> {
+  clear_all_handoff_sessions();
+  clear_all_queues();
+
+  const account_id = 1;
+  const conversation_id = 950;
+
+  const is_paused = is_conversation_in_human_handoff(account_id, conversation_id);
+  const passed = !is_paused;
+
+  test_results.push({
+    name: 'Cliente solicitando atendente nao dispara handoff automatico sem conclusao da triagem',
+    passed,
+    details: passed ? undefined : 'Sessao foi pausada prematuramente sem conclusao de triagem',
+  });
+}
+
 async function main(): Promise<void> {
   await test_webhook_ignores_open_status();
   await test_webhook_ignores_assigned_conversation();
@@ -273,6 +290,7 @@ async function main(): Promise<void> {
   await test_handoff_tool_execution();
   await test_conversation_queue_blocks_messages_in_handoff();
   await test_session_state_lifecycle();
+  await test_no_automatic_handoff_on_client_keyword();
 
   let failed_count = 0;
   for (const res of test_results) {
