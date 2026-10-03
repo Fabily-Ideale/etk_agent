@@ -12,6 +12,15 @@ async function confirm_action(question_text: string): Promise<boolean> {
 
 async function clear_database(): Promise<void> {
   console.log('Limpando o banco de dados...');
+  const deleted_pending = await prisma.pending_message.deleteMany();
+  console.log(`${deleted_pending.count} mensagens pendentes removidas.`);
+
+  const deleted_sessions = await prisma.conversation_session.deleteMany();
+  console.log(`${deleted_sessions.count} sessoes de conversa removidas.`);
+
+  const deleted_rate_limits = await prisma.rate_limit_counter.deleteMany();
+  console.log(`${deleted_rate_limits.count} contadores de rate limit removidos.`);
+
   const deleted_messages = await prisma.message.deleteMany();
   console.log(`${deleted_messages.count} mensagens removidas.`);
 

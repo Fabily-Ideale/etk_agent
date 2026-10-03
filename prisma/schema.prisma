@@ -34,3 +34,38 @@ model DocumentEmbedding {
   category  String?
   createdAt DateTime @default(now())
 }
+
+model conversation_session {
+  session_key       String            @id
+  account_id        String
+  conversation_id   String
+  sender_identifier String?
+  handoff_active    Boolean           @default(false)
+  handoff_reason    String?
+  handed_off_at     DateTime?
+  updated_at        DateTime          @default(now()) @updatedAt
+  pending_messages  pending_message[]
+
+  @@index([handoff_active])
+  @@map("conversation_session")
+}
+
+model pending_message {
+  id          BigInt               @id @default(autoincrement())
+  session_key String
+  content     String
+  received_at DateTime             @default(now())
+  session     conversation_session @relation(fields: [session_key], references: [session_key], onDelete: Cascade)
+
+  @@index([session_key, id])
+  @@map("pending_message")
+}
+
+model rate_limit_counter {
+  limit_key String   @id
+  hit_count Int
+  reset_at  DateTime
+
+  @@index([reset_at])
+  @@map("rate_limit_counter")
+}
