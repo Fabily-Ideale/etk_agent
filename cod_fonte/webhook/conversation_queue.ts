@@ -3,7 +3,7 @@ import { env } from '../config/env';
 import { handleUserMessage } from '../rag/agent';
 import { log_error_event } from '../logging/logger';
 import { memory_rate_limiter } from '../security/rate_limiter';
-import { is_conversation_in_human_handoff } from './chatwoot_client';
+import { is_conversation_in_human_handoff, send_chatwoot_message } from './chatwoot_client';
 
 export interface conversation_message_payload {
   account_id: number | string;
@@ -51,25 +51,7 @@ async function default_send_chatwoot_message(
   conversation_id: number | string,
   content: string
 ): Promise<void> {
-  if (!env.CHATWOOT_API_TOKEN) {
-    return;
-  }
-
-  const url = `${env.CHATWOOT_BASE_URL}/api/v1/accounts/${account_id}/conversations/${conversation_id}/messages`;
-
-  await axios.post(
-    url,
-    {
-      content,
-      message_type: 'outgoing',
-    },
-    {
-      headers: {
-        api_access_token: env.CHATWOOT_API_TOKEN,
-      },
-      timeout: 10000,
-    }
-  );
+  await send_chatwoot_message(account_id, conversation_id, content);
 }
 
 let active_message_sender: chatwoot_message_sender = default_send_chatwoot_message;

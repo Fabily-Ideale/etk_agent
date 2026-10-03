@@ -218,3 +218,63 @@ export async function execute_chatwoot_handoff(
   pause_conversation_for_human(params.account_id, params.conversation_id, params.reason);
   return active_handoff_handler(params);
 }
+
+export type chatwoot_message_sender = (
+  account_id: number | string,
+  conversation_id: number | string,
+  content: string
+) => Promise<boolean>;
+
+async function default_send_chatwoot_message(
+  account_id: number | string,
+  conversation_id: number | string,
+  content: string
+): Promise<boolean> {
+  if (!env.CHATWOOT_API_TOKEN) {
+    return false;
+  }
+
+  const url = `${env.CHATWOOT_BASE_URL}/api/v1/accounts/${account_id}/conversations/${conversation_id}/messages`;
+
+  try {
+    await axios.post(
+      url,
+      {
+        content,
+        message_type: 'outgoing',
+      },
+      {
+        headers: {
+          api_access_token: env.CHATWOOT_API_TOKEN,
+          'Content-Type': 'application/json',
+        },
+        timeout: 10000,
+      }
+    );
+    return true;
+  } catch (error) {
+    log_error_event(
+      'CHATWOOT_SEND_MESSAGE_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      { account_id, conversation_id }
+    );
+    return false;
+  }
+}
+
+let active_chatwoot_message_sender: chatwoot_message_sender = default_send_chatwoot_message;
+
+export function set_chatwoot_message_sender(
+  custom_sender: chatwoot_message_sender | null
+): void {
+  active_chatwoot_message_sender = custom_sender || default_send_chatwoot_message;
+}
+
+export async function send_chatwoot_message(
+  account_id: number | string,
+  conversation_id: number | string,
+  content: string
+): Promise<boolean> {
+  return active_chatwoot_message_sender(account_id, conversation_id, content);
+}

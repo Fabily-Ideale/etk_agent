@@ -1,4 +1,13 @@
-import webhook_router from '../webhook/controller';
+import webhook_router, {
+  is_unsupported_media_message,
+  unsupported_media_message,
+  clear_media_notification_cooldowns,
+} from '../webhook/controller';
+import {
+  set_chatwoot_message_sender,
+  pause_conversation_for_human,
+  clear_all_handoff_sessions,
+} from '../webhook/chatwoot_client';
 
 interface test_case_result {
   name: string;
@@ -164,9 +173,241 @@ async function run_post_tests(): Promise<void> {
   });
 }
 
+async function run_media_tests(): Promise<void> {
+  const { post_handler } = get_handlers();
+  const sent_messages: { account_id: any; conversation_id: any; content: string }[] = [];
+
+  set_chatwoot_message_sender(async (account_id, conversation_id, content) => {
+    sent_messages.push({ account_id, conversation_id, content });
+    return true;
+  });
+
+  clear_media_notification_cooldowns();
+  clear_all_handoff_sessions();
+
+  const is_image_detected = is_unsupported_media_message({
+    attachments: [{ id: 1, file_type: 'image' }],
+    content: '',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta anexo de imagem com texto vazio',
+    passed: is_image_detected === true,
+  });
+
+  const is_image_caption_detected = is_unsupported_media_message({
+    attachments: [{ id: 1, file_type: 'image' }],
+    content: 'Veja essa foto',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta anexo de imagem com legenda de texto',
+    passed: is_image_caption_detected === true,
+  });
+
+  const is_audio_detected = is_unsupported_media_message({
+    attachments: [{ id: 2, file_type: 'audio' }],
+    content: null,
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta anexo de audio',
+    passed: is_audio_detected === true,
+  });
+
+  const is_video_detected = is_unsupported_media_message({
+    attachments: [{ id: 3, file_type: 'video' }],
+    content: '',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta anexo de video',
+    passed: is_video_detected === true,
+  });
+
+  const is_doc_detected = is_unsupported_media_message({
+    attachments: [{ id: 4, file_type: 'file' }],
+    content: 'documento.pdf',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta anexo de documento ou arquivo',
+    passed: is_doc_detected === true,
+  });
+
+  const is_custom_content_type_detected = is_unsupported_media_message({
+    content_type: 'location',
+    content: '',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: detecta content_type diferente de text',
+    passed: is_custom_content_type_detected === true,
+  });
+
+  const is_plain_text_allowed = is_unsupported_media_message({
+    attachments: [],
+    content_type: 'text',
+    content: 'Qual o valor da formatacao?',
+  });
+  test_results.push({
+    name: 'is_unsupported_media_message: permite texto puro sem anexos',
+    passed: is_plain_text_allowed === false,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  const res_image_post = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: '',
+      attachments: [{ id: 10, file_type: 'image' }],
+      conversation: { id: 701, status: 'bot' },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990002', name: 'Cliente Imagem' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: mensagem com imagem dispara aviso de texto exclusivo e responde 200',
+    passed:
+      res_image_post.status === 200 &&
+      sent_messages.length === 1 &&
+      sent_messages[0].conversation_id === 701 &&
+      sent_messages[0].content === unsupported_media_message,
+  });
+
+  const res_image_burst = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: '',
+      attachments: [{ id: 11, file_type: 'image' }],
+      conversation: { id: 701, status: 'bot' },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990002', name: 'Cliente Imagem' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: rajada de midias dentro do cooldown nao duplica envio de aviso',
+    passed: res_image_burst.status === 200 && sent_messages.length === 1,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  const res_audio_post = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: null,
+      attachments: [{ id: 20, file_type: 'audio' }],
+      conversation: { id: 702, status: 'bot' },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990003', name: 'Cliente Audio' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: mensagem de audio dispara aviso de suporte exclusivo a texto',
+    passed:
+      res_audio_post.status === 200 &&
+      sent_messages.length === 1 &&
+      sent_messages[0].conversation_id === 702 &&
+      sent_messages[0].content === unsupported_media_message,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  const res_image_caption = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: 'Conserta esse defeito da foto?',
+      attachments: [{ id: 30, file_type: 'image' }],
+      conversation: { id: 703, status: 'bot' },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990004', name: 'Cliente Legenda' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: imagem com legenda e interceptada e gera aviso de texto exclusivo',
+    passed:
+      res_image_caption.status === 200 &&
+      sent_messages.length === 1 &&
+      sent_messages[0].conversation_id === 703 &&
+      sent_messages[0].content === unsupported_media_message,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  const res_human_open = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: '',
+      attachments: [{ id: 40, file_type: 'image' }],
+      conversation: { id: 704, status: 'open' },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990005', name: 'Cliente Humano' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: midia em conversa com status open nao dispara aviso automatico',
+    passed: res_human_open.status === 200 && sent_messages.length === 0,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  pause_conversation_for_human(1, 705, 'teste_handoff_midia');
+  const res_human_handoff = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: '',
+      attachments: [{ id: 50, file_type: 'audio' }],
+      conversation: { id: 705 },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990006', name: 'Cliente Handoff' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: midia em sessao de handoff humano nao dispara aviso automatico',
+    passed: res_human_handoff.status === 200 && sent_messages.length === 0,
+  });
+
+  sent_messages.length = 0;
+  clear_media_notification_cooldowns();
+
+  const res_human_assignee = await invoke_handler(post_handler, {
+    body: {
+      event: 'message_created',
+      message_type: 'incoming',
+      content: '',
+      attachments: [{ id: 60, file_type: 'image' }],
+      conversation: { id: 706, assignee_id: 99 },
+      account: { id: 1 },
+      sender: { phone_number: '5511999990007', name: 'Cliente Atendente' },
+    },
+  });
+
+  test_results.push({
+    name: 'POST /webhook: midia em conversa com assignee humano nao dispara aviso automatico',
+    passed: res_human_assignee.status === 200 && sent_messages.length === 0,
+  });
+
+  set_chatwoot_message_sender(null);
+  clear_media_notification_cooldowns();
+  clear_all_handoff_sessions();
+}
+
 async function main(): Promise<void> {
   await run_get_tests();
   await run_post_tests();
+  await run_media_tests();
 
   let failed_count = 0;
   for (const res of test_results) {

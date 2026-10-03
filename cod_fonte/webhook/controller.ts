@@ -1,6 +1,42 @@
 import { Router, Request, Response } from 'express';
 import { enqueue_conversation_message } from './conversation_queue';
-import { is_conversation_in_human_handoff, resume_conversation_bot } from './chatwoot_client';
+import {
+  is_conversation_in_human_handoff,
+  resume_conversation_bot,
+  send_chatwoot_message,
+} from './chatwoot_client';
+import { log_standard_event } from '../logging/logger';
+
+export const unsupported_media_message =
+  'Nosso assistente virtual suporta apenas mensagens de texto. Por favor, envie sua duvida ou solicitacao por escrito em texto.';
+
+const media_notification_cooldowns = new Map<string, number>();
+const media_cooldown_window_ms = 5000;
+
+export function clear_media_notification_cooldowns(): void {
+  media_notification_cooldowns.clear();
+}
+
+export function is_unsupported_media_message(body: Record<string, any>): boolean {
+  if (Array.isArray(body.attachments) && body.attachments.length > 0) {
+    return true;
+  }
+
+  if (
+    typeof body.content_type === 'string' &&
+    body.content_type.trim().length > 0 &&
+    body.content_type.trim().toLowerCase() !== 'text'
+  ) {
+    return true;
+  }
+
+  const text = typeof body.content === 'string' ? body.content.trim() : '';
+  if (text.length === 0) {
+    return true;
+  }
+
+  return false;
+}
 
 const router = Router();
 
@@ -23,11 +59,6 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
   }
 
   if (body.private === true) {
-    return;
-  }
-
-  const text = typeof body.content === 'string' ? body.content.trim() : '';
-  if (text.length === 0) {
     return;
   }
 
@@ -60,6 +91,24 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
     : typeof sender_name === 'string' && sender_name.trim().length > 0
     ? sender_name.trim()
     : `chatwoot_${conversation_id}`;
+
+  if (is_unsupported_media_message(body)) {
+    const cooldown_key = `${account_id}_${conversation_id}`;
+    const now = Date.now();
+    const last_notified = media_notification_cooldowns.get(cooldown_key) || 0;
+
+    if (now - last_notified >= media_cooldown_window_ms) {
+      media_notification_cooldowns.set(cooldown_key, now);
+      await send_chatwoot_message(account_id, conversation_id, unsupported_media_message);
+      log_standard_event(sender_identifier, 'response_sent', {
+        status: 'unsupported_media_rejected',
+      });
+    }
+
+    return;
+  }
+
+  const text = typeof body.content === 'string' ? body.content.trim() : '';
 
   enqueue_conversation_message({
     account_id,
