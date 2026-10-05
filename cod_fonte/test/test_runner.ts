@@ -43,6 +43,10 @@ const suites: suite_definition[] = [
     name: 'Interrupcao e Handoff para Atendimento Humano (Chatwoot)',
     file_path: path.join(__dirname, 'test_handoff.ts'),
   },
+  {
+    name: 'Persistencia de Estado e Isolamento Concorrente (PostgreSQL)',
+    file_path: path.join(__dirname, 'test_persistence.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {
