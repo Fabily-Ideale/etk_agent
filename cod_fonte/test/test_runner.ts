@@ -47,6 +47,10 @@ const suites: suite_definition[] = [
     name: 'Persistencia de Estado e Isolamento Concorrente (PostgreSQL)',
     file_path: path.join(__dirname, 'test_persistence.ts'),
   },
+  {
+    name: 'Contextualizacao do Agente e Ingestao de Timestamp Dinamico',
+    file_path: path.join(__dirname, 'test_agent_prompt.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {

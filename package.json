@@ -20,6 +20,7 @@
     "test:queue": "ts-node cod_fonte/test/test_conversation_queue.ts",
     "test:handoff": "ts-node cod_fonte/test/test_handoff.ts",
     "test:persistence": "ts-node cod_fonte/test/test_persistence.ts",
+    "test:prompt": "ts-node cod_fonte/test/test_agent_prompt.ts",
     "test": "ts-node cod_fonte/test/test_runner.ts"
   },
   "prisma": {
