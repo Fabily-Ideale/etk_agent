@@ -1,21 +1,22 @@
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { execute_chatwoot_handoff } from '../../webhook/chatwoot_client';
+import { get_conversation_context, conversation_context } from '../../runtime/request_context';
 
-let current_handoff_context: { account_id?: number | string; conversation_id?: number | string } | null = null;
+let fallback_handoff_context: conversation_context | null = null;
 
-export function set_current_handoff_context(
-  context: { account_id?: number | string; conversation_id?: number | string } | null
-): void {
-  current_handoff_context = context;
+export function set_current_handoff_context(context: conversation_context | null): void {
+  fallback_handoff_context = context;
 }
 
 export const handoff_tool = tool(
   async ({ motivo }: { motivo: string }) => {
-    if (current_handoff_context?.account_id && current_handoff_context?.conversation_id) {
+    const active_context = get_conversation_context() || fallback_handoff_context;
+
+    if (active_context?.account_id && active_context?.conversation_id) {
       await execute_chatwoot_handoff({
-        account_id: current_handoff_context.account_id,
-        conversation_id: current_handoff_context.conversation_id,
+        account_id: active_context.account_id,
+        conversation_id: active_context.conversation_id,
         reason: motivo,
       });
     }

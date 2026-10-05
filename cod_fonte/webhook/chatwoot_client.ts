@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { env } from '../config/env';
 import { log_error_event, log_standard_event } from '../logging/logger';
+import { session_store, prisma_session_store } from '../persistence/session_store';
 
 export interface chatwoot_handoff_params {
   account_id: number | string;
@@ -20,16 +21,45 @@ export interface handoff_session_entry {
 export type chatwoot_handoff_handler = (params: chatwoot_handoff_params) => Promise<boolean>;
 
 const handoff_sessions = new Map<string, handoff_session_entry>();
+const default_session_store: session_store = new prisma_session_store();
+let active_session_store: session_store = default_session_store;
 
 function get_session_key(account_id: number | string, conversation_id: number | string): string {
   return `${account_id}_${conversation_id}`;
+}
+
+export function set_session_store(custom_store: session_store | null): void {
+  active_session_store = custom_store || default_session_store;
+}
+
+export async function hydrate_handoff_sessions(): Promise<number> {
+  try {
+    const loaded = await active_session_store.load_active_handoffs();
+    for (const item of loaded) {
+      const key = get_session_key(item.account_id, item.conversation_id);
+      handoff_sessions.set(key, {
+        account_id: item.account_id,
+        conversation_id: item.conversation_id,
+        handed_off_at: item.handed_off_at,
+        reason: item.reason,
+      });
+    }
+    return loaded.length;
+  } catch (error) {
+    log_error_event(
+      'CHATWOOT_HANDOFF_HYDRATE_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined
+    );
+    return 0;
+  }
 }
 
 export function pause_conversation_for_human(
   account_id: number | string,
   conversation_id: number | string,
   reason?: string
-): void {
+): Promise<void> {
   const key = get_session_key(account_id, conversation_id);
   handoff_sessions.set(key, {
     account_id,
@@ -37,14 +67,32 @@ export function pause_conversation_for_human(
     handed_off_at: Date.now(),
     reason,
   });
+
+  return active_session_store.activate_handoff(account_id, conversation_id, reason).catch((error) => {
+    log_error_event(
+      'CHATWOOT_HANDOFF_PERSISTENCE_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      { account_id, conversation_id, reason }
+    );
+  });
 }
 
 export function resume_conversation_bot(
   account_id: number | string,
   conversation_id: number | string
-): void {
+): Promise<void> {
   const key = get_session_key(account_id, conversation_id);
   handoff_sessions.delete(key);
+
+  return active_session_store.release_handoff(account_id, conversation_id).catch((error) => {
+    log_error_event(
+      'CHATWOOT_RESUME_PERSISTENCE_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      { account_id, conversation_id }
+    );
+  });
 }
 
 export function is_conversation_in_human_handoff(
@@ -186,7 +234,7 @@ async function default_execute_chatwoot_handoff(
 ): Promise<boolean> {
   const { account_id, conversation_id, reason, assignee_id, team_id } = params;
 
-  pause_conversation_for_human(account_id, conversation_id, reason);
+  await pause_conversation_for_human(account_id, conversation_id, reason);
 
   log_standard_event(String(conversation_id), 'response_sent', {
     status: 'handoff_triggered',
@@ -215,7 +263,7 @@ export function set_chatwoot_handoff_handler(
 export async function execute_chatwoot_handoff(
   params: chatwoot_handoff_params
 ): Promise<boolean> {
-  pause_conversation_for_human(params.account_id, params.conversation_id, params.reason);
+  await pause_conversation_for_human(params.account_id, params.conversation_id, params.reason);
   return active_handoff_handler(params);
 }
 

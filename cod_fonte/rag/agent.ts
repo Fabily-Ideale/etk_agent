@@ -3,15 +3,12 @@ import { traceable } from 'langsmith/traceable';
 import { llm } from '../config/llm';
 import { prisma } from '../config/prisma';
 import { agent_tools, services_tool, knowledge_tool, handoff_tool } from './tools';
-import { set_current_handoff_context } from './tools/handoff_tool';
 import { execute_chatwoot_handoff } from '../webhook/chatwoot_client';
 import { validate_security_guardrails } from '../security/guardrails';
 import { log_standard_event, log_error_event, log_guardrail_violation_event } from '../logging/logger';
+import { conversation_context, run_with_conversation_context } from '../runtime/request_context';
 
-export interface conversation_context {
-  account_id?: number | string;
-  conversation_id?: number | string;
-}
+export type { conversation_context } from '../runtime/request_context';
 
 const tools_map: Record<string, (args: any) => Promise<any>> = {
   [services_tool.name]: (args: any) => services_tool.invoke(args),
@@ -66,65 +63,59 @@ const execute_agent_loop = traceable(
   async (
     conversation_messages: BaseMessage[],
     context?: conversation_context
-  ): Promise<agent_loop_result> => {
+  ): Promise<agent_loop_result> => run_with_conversation_context(context || {}, async () => {
     let current_iteration = 0;
     const max_iterations = 5;
     let handoff_executed = false;
 
-    set_current_handoff_context(context || null);
+    while (current_iteration < max_iterations) {
+      current_iteration++;
 
-    try {
-      while (current_iteration < max_iterations) {
-        current_iteration++;
+      const response = await llm_with_tools.invoke(conversation_messages);
+      conversation_messages.push(response);
 
-        const response = await llm_with_tools.invoke(conversation_messages);
-        conversation_messages.push(response);
-
-        const tool_calls = response.tool_calls;
-        if (!tool_calls || tool_calls.length === 0) {
-          const final_content = typeof response.content === 'string'
-            ? response.content
-            : JSON.stringify(response.content);
-          return { answer: final_content, handoff_executed };
-        }
-
-        for (const call of tool_calls) {
-          const executor = tools_map[call.name];
-          let tool_output: string;
-
-          if (call.name === handoff_tool.name) {
-            handoff_executed = true;
-          }
-
-          if (executor) {
-            try {
-              const raw_result = await executor(call.args);
-              tool_output = typeof raw_result === 'string' ? raw_result : JSON.stringify(raw_result);
-            } catch (exec_error) {
-              tool_output = `Erro ao executar a ferramenta ${call.name}: ${String(exec_error)}`;
-            }
-          } else {
-            tool_output = `Ferramenta ${call.name} nao encontrada.`;
-          }
-
-          conversation_messages.push(
-            new ToolMessage({
-              tool_call_id: call.id ?? '',
-              content: tool_output,
-              name: call.name,
-            })
-          );
-        }
+      const tool_calls = response.tool_calls;
+      if (!tool_calls || tool_calls.length === 0) {
+        const final_content = typeof response.content === 'string'
+          ? response.content
+          : JSON.stringify(response.content);
+        return { answer: final_content, handoff_executed };
       }
 
-      return {
-        answer: 'Nao foi possivel concluir o processamento dentro do limite de etapas.',
-        handoff_executed,
-      };
-    } finally {
-      set_current_handoff_context(null);
+      for (const call of tool_calls) {
+        const executor = tools_map[call.name];
+        let tool_output: string;
+
+        if (call.name === handoff_tool.name) {
+          handoff_executed = true;
+        }
+
+        if (executor) {
+          try {
+            const raw_result = await executor(call.args);
+            tool_output = typeof raw_result === 'string' ? raw_result : JSON.stringify(raw_result);
+          } catch (exec_error) {
+            tool_output = `Erro ao executar a ferramenta ${call.name}: ${String(exec_error)}`;
+          }
+        } else {
+          tool_output = `Ferramenta ${call.name} nao encontrada.`;
+        }
+
+        conversation_messages.push(
+          new ToolMessage({
+            tool_call_id: call.id ?? '',
+            content: tool_output,
+            name: call.name,
+          })
+        );
+      }
     }
-  },
+
+    return {
+      answer: 'Nao foi possivel concluir o processamento dentro do limite de etapas.',
+      handoff_executed,
+    };
+  }),
   {
     name: 'agent_execution_loop',
     run_type: 'chain',

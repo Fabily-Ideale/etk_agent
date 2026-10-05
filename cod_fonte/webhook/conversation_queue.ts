@@ -4,6 +4,8 @@ import { handleUserMessage } from '../rag/agent';
 import { log_error_event } from '../logging/logger';
 import { memory_rate_limiter } from '../security/rate_limiter';
 import { is_conversation_in_human_handoff, send_chatwoot_message } from './chatwoot_client';
+import { session_store, prisma_session_store } from '../persistence/session_store';
+import { rate_limit_store, prisma_rate_limit_store } from '../persistence/rate_limit_store';
 
 export interface conversation_message_payload {
   account_id: number | string;
@@ -41,10 +43,16 @@ export type chatwoot_message_sender = (
   content: string
 ) => Promise<void>;
 
+export type queue_rate_limiter = rate_limit_store | memory_rate_limiter;
+
 const max_buffered_messages_per_conversation = 20;
 const conversation_queues = new Map<string, conversation_queue_entry>();
-const default_rate_limiter = new memory_rate_limiter();
-let active_rate_limiter: memory_rate_limiter = default_rate_limiter;
+
+const default_session_store: session_store = new prisma_session_store();
+let active_session_store: session_store = default_session_store;
+
+const default_rate_limiter: queue_rate_limiter = new prisma_rate_limit_store();
+let active_rate_limiter: queue_rate_limiter = default_rate_limiter;
 
 async function default_send_chatwoot_message(
   account_id: number | string,
@@ -104,6 +112,10 @@ let custom_debounce_ms: number | null = null;
 let custom_rate_limit_max: number | null = null;
 let custom_rate_limit_window_ms: number | null = null;
 
+export function set_session_store(custom_store: session_store | null): void {
+  active_session_store = custom_store || default_session_store;
+}
+
 export function set_message_processor(custom_processor: message_processor | null): void {
   active_message_processor = custom_processor || default_message_processor;
 }
@@ -116,7 +128,7 @@ export function set_chatwoot_message_sender(custom_sender: chatwoot_message_send
   active_message_sender = custom_sender || default_send_chatwoot_message;
 }
 
-export function set_queue_rate_limiter(custom_limiter: memory_rate_limiter | null): void {
+export function set_queue_rate_limiter(custom_limiter: queue_rate_limiter | null): void {
   active_rate_limiter = custom_limiter || default_rate_limiter;
 }
 
@@ -168,7 +180,49 @@ export function clear_all_queues(): void {
     }
   }
   conversation_queues.clear();
-  active_rate_limiter.reset();
+  void active_rate_limiter.reset();
+}
+
+export async function recover_pending_queues(): Promise<number> {
+  try {
+    const sessions = await active_session_store.list_sessions_with_pending();
+    let scheduled_count = 0;
+
+    for (const session of sessions) {
+      if (is_conversation_in_human_handoff(session.account_id, session.conversation_id)) {
+        await active_session_store.consume_pending_messages(session.account_id, session.conversation_id);
+        continue;
+      }
+
+      const key = `${session.account_id}_${session.conversation_id}`;
+      let entry = conversation_queues.get(key);
+
+      if (!entry) {
+        entry = {
+          account_id: session.account_id,
+          conversation_id: session.conversation_id,
+          sender_identifier: session.sender_identifier,
+          buffered_messages: [],
+          is_processing: false,
+          debounce_timer: null,
+          last_activity_timestamp: Date.now(),
+        };
+        conversation_queues.set(key, entry);
+      }
+
+      schedule_queue_execution(key, 0);
+      scheduled_count++;
+    }
+
+    return scheduled_count;
+  } catch (error) {
+    log_error_event(
+      'CONVERSATION_QUEUE_RECOVERY_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined
+    );
+    return 0;
+  }
 }
 
 function schedule_queue_execution(key: string, delay_ms: number): void {
@@ -207,12 +261,20 @@ async function process_queue(key: string): Promise<void> {
   }
 
   if (is_conversation_in_human_handoff(entry.account_id, entry.conversation_id)) {
+    await active_session_store.consume_pending_messages(entry.account_id, entry.conversation_id);
     entry.buffered_messages = [];
     conversation_queues.delete(key);
     return;
   }
 
-  if (entry.buffered_messages.length === 0) {
+  const messages_to_process = entry.buffered_messages.length > 0
+    ? [...entry.buffered_messages]
+    : await active_session_store.consume_pending_messages(entry.account_id, entry.conversation_id);
+
+  entry.buffered_messages = [];
+  void active_session_store.consume_pending_messages(entry.account_id, entry.conversation_id);
+
+  if (messages_to_process.length === 0) {
     if (!entry.debounce_timer) {
       conversation_queues.delete(key);
     }
@@ -221,9 +283,6 @@ async function process_queue(key: string): Promise<void> {
 
   entry.is_processing = true;
 
-  const messages_to_process = [...entry.buffered_messages];
-  entry.buffered_messages = [];
-
   const combined_text = messages_to_process.join('\n');
 
   try {
@@ -231,7 +290,7 @@ async function process_queue(key: string): Promise<void> {
       const sanitized_identifier = entry.sender_identifier.replace(/\D/g, '');
       const rate_limit_key = `phone:${sanitized_identifier.length > 0 ? sanitized_identifier : entry.sender_identifier.trim()}`;
       const policy = get_effective_rate_limit_policy();
-      const rate_result = active_rate_limiter.consume(rate_limit_key, policy.max_requests, policy.window_ms);
+      const rate_result = await active_rate_limiter.consume(rate_limit_key, policy.max_requests, policy.window_ms);
 
       if (!rate_result.allowed) {
         log_error_event(
@@ -324,6 +383,21 @@ export function enqueue_conversation_message(payload: conversation_message_paylo
 
   entry.sender_identifier = payload.sender_identifier;
   entry.last_activity_timestamp = Date.now();
+
+  void active_session_store.append_pending_message(
+    payload.account_id,
+    payload.conversation_id,
+    payload.sender_identifier,
+    payload.text,
+    max_buffered_messages_per_conversation
+  ).catch((error) => {
+    log_error_event(
+      'PENDING_MESSAGE_PERSISTENCE_ERROR',
+      error instanceof Error ? error.message : String(error),
+      error instanceof Error ? error.stack : undefined,
+      { account_id: payload.account_id, conversation_id: payload.conversation_id }
+    );
+  });
 
   if (entry.is_processing) {
     return;

@@ -38,6 +38,14 @@ export function is_unsupported_media_message(body: Record<string, any>): boolean
   return false;
 }
 
+function purge_expired_media_cooldowns(now: number): void {
+  for (const [key, timestamp] of media_notification_cooldowns.entries()) {
+    if (now - timestamp >= media_cooldown_window_ms) {
+      media_notification_cooldowns.delete(key);
+    }
+  }
+}
+
 const router = Router();
 
 async function process_chatwoot_webhook(req: Request, res: Response): Promise<void> {
@@ -73,7 +81,7 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
   const assignee_id = body.conversation?.assignee_id ?? body.conversation?.assignee?.id;
 
   if (conversation_status === 'pending' || conversation_status === 'bot') {
-    resume_conversation_bot(account_id, conversation_id);
+    void resume_conversation_bot(account_id, conversation_id);
   }
 
   const is_open = conversation_status === 'open';
@@ -95,6 +103,7 @@ async function process_chatwoot_webhook(req: Request, res: Response): Promise<vo
   if (is_unsupported_media_message(body)) {
     const cooldown_key = `${account_id}_${conversation_id}`;
     const now = Date.now();
+    purge_expired_media_cooldowns(now);
     const last_notified = media_notification_cooldowns.get(cooldown_key) || 0;
 
     if (now - last_notified >= media_cooldown_window_ms) {

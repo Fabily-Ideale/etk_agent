@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import { env } from './config/env';
 import webhook_routes from './webhook/controller';
+import { hydrate_handoff_sessions } from './webhook/chatwoot_client';
+import { recover_pending_queues } from './webhook/conversation_queue';
 
 const app = express();
 
@@ -15,8 +17,15 @@ app.get('/health', (_req: Request, res: Response): void => {
 
 app.use('/webhook', webhook_routes);
 
-app.listen(env.PORT, () => {
-  console.log(`Servidor rodando na porta ${env.PORT}`);
-});
+async function start_server(): Promise<void> {
+  await hydrate_handoff_sessions();
+  await recover_pending_queues();
+
+  app.listen(env.PORT, () => {
+    console.log(`Servidor rodando na porta ${env.PORT}`);
+  });
+}
+
+void start_server();
 
 export default app;
