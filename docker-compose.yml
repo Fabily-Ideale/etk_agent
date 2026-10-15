@@ -1,3 +1,5 @@
+name: etk_agent
+
 services:
   db:
     image: pgvector/pgvector:pg17
