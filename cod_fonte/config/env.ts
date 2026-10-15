@@ -19,6 +19,8 @@ const env_schema = z.object({
   CHATWOOT_API_TOKEN: z.string().optional(),
   CHATWOOT_ASSIGNEE_ID: z.coerce.number().optional(),
   CHATWOOT_TEAM_ID: z.coerce.number().optional(),
+  CHATWOOT_WEBHOOK_SECRET_TOKEN: z.string().min(16),
+  CORS_ALLOWED_ORIGINS: z.string(),
   LANGSMITH_TRACING: z.string().default('false'),
   LANGSMITH_API_KEY: z.string().optional(),
   LANGSMITH_PROJECT: z.string().default('default'),

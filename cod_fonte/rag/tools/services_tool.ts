@@ -41,25 +41,13 @@ function parse_csv_line(line: string): string[] {
   return fields;
 }
 
-function load_services(): service_item[] {
-  if (cached_services) {
-    return cached_services;
-  }
+export const default_services_csv_path = path.join(__dirname, '..', 'doc_bruto', 'precos.csv');
 
-  const csv_path = path.join(__dirname, '..', 'doc_bruto', 'precos.csv');
-  if (!fs.existsSync(csv_path)) {
-    return [];
-  }
-
-  const raw_content = fs.readFileSync(csv_path, 'utf-8');
+export function parse_services_csv(raw_content: string): service_item[] {
   const lines = raw_content
     .split(/\r?\n/)
     .map(line => line.trim())
     .filter(line => line.length > 0);
-
-  if (lines.length <= 1) {
-    return [];
-  }
 
   const services: service_item[] = [];
 
@@ -75,6 +63,23 @@ function load_services(): service_item[] {
         categoria: row[5],
       });
     }
+  }
+
+  return services;
+}
+
+function load_services(): service_item[] {
+  if (cached_services) {
+    return cached_services;
+  }
+
+  if (!fs.existsSync(default_services_csv_path)) {
+    return [];
+  }
+
+  const services = parse_services_csv(fs.readFileSync(default_services_csv_path, 'utf-8'));
+  if (services.length === 0) {
+    return [];
   }
 
   cached_services = services;

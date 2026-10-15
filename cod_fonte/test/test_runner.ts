@@ -51,6 +51,14 @@ const suites: suite_definition[] = [
     name: 'Contextualizacao do Agente e Ingestao de Timestamp Dinamico',
     file_path: path.join(__dirname, 'test_agent_prompt.ts'),
   },
+  {
+    name: 'Endpoint Publico de Servicos (Allowlist, Frescor do CSV e Rate Limit)',
+    file_path: path.join(__dirname, 'test_servicos_publicos.ts'),
+  },
+  {
+    name: 'Autenticacao HMAC do Webhook do Chatwoot',
+    file_path: path.join(__dirname, 'test_webhook_auth.ts'),
+  },
 ];
 
 function run_single_suite(suite: suite_definition): suite_execution_result {

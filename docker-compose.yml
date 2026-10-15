@@ -94,6 +94,7 @@ services:
       default:
         aliases:
           - chatwoot
+      etk_rede: {}
 
   chatwoot_worker:
     image: chatwoot/chatwoot:latest
@@ -160,6 +161,7 @@ services:
       LOG_DIR: /app/logs
     volumes:
       - ./logs:/app/logs
+      - ./cod_fonte/rag/doc_bruto:/app/cod_result/rag/doc_bruto:ro
     expose:
       - "${PORT:-3001}"
     deploy:
@@ -170,6 +172,9 @@ services:
           memory: 128M
     networks:
       default:
+        aliases:
+          - agente.local
+      etk_rede:
         aliases:
           - agente.local
 
@@ -188,7 +193,11 @@ services:
           memory: 32M
     networks:
       - default
+      - etk_rede
 
+networks:
+  etk_rede:
+    name: etk_rede
 
 volumes:
   postgres_data:
