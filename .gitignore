@@ -7,4 +7,5 @@ cod_fonte/rag/doc_bruto/*
 cod_fonte/rag/doc_markdown/*
 !.gitkeep
 logs/*
-!logs/.gitkeep
+!logs/.gitkeep
+.claude/

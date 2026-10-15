@@ -21,6 +21,8 @@
     "test:handoff": "ts-node cod_fonte/test/test_handoff.ts",
     "test:persistence": "ts-node cod_fonte/test/test_persistence.ts",
     "test:prompt": "ts-node cod_fonte/test/test_agent_prompt.ts",
+    "test:servicos": "ts-node cod_fonte/test/test_servicos_publicos.ts",
+    "test:webhook_auth": "ts-node cod_fonte/test/test_webhook_auth.ts",
     "test": "ts-node cod_fonte/test/test_runner.ts"
   },
   "prisma": {
